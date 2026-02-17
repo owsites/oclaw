@@ -1,6 +1,8 @@
-# OpenClaw Context Optimization Plan
+# OpenClaw Context Optimization Plan v3
 
-## Pragmatic Token Reduction for the OpenClaw Agent System
+## Self-Correcting Context Management for the OpenClaw Agent System
+
+Informed by analysis of MemGPT/Letta, Mem0, AutoGen, CrewAI, Claude Code, Reflexion, CRITIC, Voyager, and LangGraph.
 
 ---
 
@@ -8,7 +10,7 @@
 
 ### 1. How Context Is Built Today
 
-OpenClaw is a multi-channel AI gateway built in TypeScript (ESM). On every turn, the system:
+OpenClaw is a multi-channel AI gateway built in TypeScript (ESM). On every turn:
 
 1. **Receives** a message via channel (Telegram, Discord, Signal, WhatsApp, Web, etc.)
 2. **Routes** through `src/auto-reply/` to the embedded Pi agent runner
@@ -19,454 +21,629 @@ OpenClaw is a multi-channel AI gateway built in TypeScript (ESM). On every turn,
 7. **Calls LLM** through `@mariozechner/pi-coding-agent` SDK with the entire payload
 8. **Compacts reactively** only when context overflows, via `compaction.ts` chunk-then-summarize
 
-### 2. Measured Token Hotspots
-
-These are the actual locations where tokens are consumed, based on code inspection:
+### 2. Token Hotspots
 
 | Hotspot | Source File | Estimated Cost | Evidence |
 |---------|------------|----------------|----------|
 | **System prompt** | `system-prompt.ts:400-638` | 2,000-4,000 tok/turn | 638-line function builds ~20 sections; includes CLI reference, messaging rules, reaction guidance, voice hints, heartbeat config, silent reply rules, sandbox info, model aliases, docs paths — all sent every call |
-| **Bootstrap context files** | `bootstrap.ts:187-239` | Variable, up to 150K chars (DEFAULT_BOOTSTRAP_TOTAL_MAX_CHARS) | `buildBootstrapContextFiles()` injects files with per-file 20K char limit and 150K total limit. SOUL.md, MEMORY.md, workspace notes go in verbatim |
-| **Session history** | `compact.ts:574-587` | Grows unbounded until compaction | `limitHistoryTurns()` applies hard cutoff but no importance weighting. Full message array passed to `session.agent.replaceMessages()` |
-| **Tool schemas** | `pi-tools.ts` + `pi-tool-definition-adapter.ts` | 500-1,500 tok/turn | `createOpenClawCodingTools()` creates all tools; full JSON schemas for read, write, edit, apply_patch, grep, find, ls, exec, process, web_search, web_fetch, browser, canvas, nodes, cron, message, gateway, sessions_*, subagents, session_status, image |
-| **Compaction cost** | `compaction.ts:142-309` | 1-3 LLM calls when triggered | `summarizeInStages()` splits by token share, summarizes each chunk, then merges summaries — each step is a separate LLM call |
-| **Memory search results** | memory tools | 200-600 tok/search | Raw text snippets returned without compression |
+| **Bootstrap context files** | `bootstrap.ts:187-239` | Variable, up to 150K chars | `buildBootstrapContextFiles()` injects with per-file 20K char limit and 150K total. SOUL.md, MEMORY.md, workspace notes go in verbatim |
+| **Session history** | `compact.ts:574-587` | Grows unbounded until compaction | `limitHistoryTurns()` applies hard cutoff but no importance weighting |
+| **Tool schemas** | `pi-tools.ts` + `pi-tool-definition-adapter.ts` | 500-1,500 tok/turn | Full JSON schemas for 25+ tools every call |
+| **Compaction cost** | `compaction.ts:142-309` | 1-3 LLM calls when triggered | `summarizeInStages()` splits by token share, summarizes chunks, merges summaries |
+| **Stale tool results** | session transcript | Unbounded | Completed tool calls from 20 turns ago sit in history at full size |
 
-### 3. Specific Weaknesses in Current Code
+### 3. What Competing Systems Do Better
 
-**3a. History is flat and unweighted** (`history.ts:15-36`)
-`limitHistoryTurns()` counts user messages backwards and slices. A greeting from 40 turns ago costs the same tokens as a critical decision from 2 turns ago. There's no recency weighting, no importance scoring, no selective retention.
+| System | Key Insight for OpenClaw | Evidence |
+|--------|------------------------|----------|
+| **MemGPT/Letta** | Memory pressure warnings at 70% capacity — proactive, not just reactive at 100%. Core memory blocks the agent can self-edit. FIFO queue with recursive summary at position [0]. | 93.4% accuracy on Deep Memory Retrieval benchmark |
+| **Claude Code** | Context editing (clearing stale tool call results) gave **84% token reduction** and **29% performance improvement** — bigger gain than summarization. | Anthropic engineering blog, September 2025 |
+| **Mem0** | Extract-and-store facts with LLM-decided ADD/UPDATE/DELETE/NOOP. Selective retrieval of concise facts instead of full history. | 90% token reduction, 91% lower p95 latency on LOCOMO benchmark |
+| **AutoGen** | TransformMessages pipeline — composable transforms applied before LLM. LLMLingua BERT-based compression as alternative to LLM summarization. | MessageTokenLimiter: 4,019 → 215 tokens in example |
+| **LangGraph** | Per-node retry with exponential backoff + checkpoint-based state rollback + time travel to any previous state. | Production framework, used by LangChain deep agents |
+| **Reflexion** | Verbal reflections stored in sliding window memory, used in next trial. External evaluator provides ground truth. | +22% on AlfWorld, 91% on HumanEval |
+| **CRITIC** | External tools (search, code interpreter) verify LLM output. Self-correction without external feedback doesn't work (Huang et al., ICLR 2024). | +16 pts on TabMWP (70B model). Removing tools caused -1.8pt regression |
+| **Voyager** | 3-layer error detection: execution errors + environment state diff + LLM critic. Max 4 attempts then abandon. | 3.3x unique items, only agent to reach diamond tools |
 
-**3b. Compaction is reactive and lossy** (`compaction.ts:248-309`)
-`summarizeInStages()` only runs after context overflow. It splits messages by token share (not semantic boundaries), summarizes each chunk independently (losing cross-chunk references), then merges summaries (further lossy compression). Decisions, code snippets, and user preferences get flattened into generic prose.
+### 4. The Critical Research Finding
 
-**3c. System prompt is monolithic** (`system-prompt.ts:400-638`)
-Every turn rebuilds the same prompt. Sections like Safety (lines 371-377), CLI Quick Reference (lines 438-445), Messaging (lines 98-137), Silent Replies (lines 601-615), and Heartbeats (lines 619-628) are identical across turns but consume thousands of tokens repeatedly. The only variation is `promptMode` ("full" vs "minimal" vs "none"), which is a coarse toggle.
+Huang et al. (ICLR 2024, "Large Language Models Cannot Self-Correct Reasoning Yet"): **LLMs cannot reliably self-correct without external feedback**. When asked to critique their own outputs, they often change correct answers to incorrect ones. Every successful self-correcting system uses external signals — test results, search engines, code interpreters, environment feedback — not LLM self-judgment.
 
-**3d. All tool schemas sent unconditionally** (`system-prompt.ts:224-317`)
-The `coreToolSummaries` object maps 23 tool names to descriptions. All enabled tools are listed in the system prompt every turn. The full JSON schemas (from `pi-tool-definition-adapter.ts`) are also sent to the LLM API. When a user asks "what time is it?", the LLM still receives schemas for `apply_patch`, `browser`, `canvas`, `nodes`, `cron`, `gateway`, etc.
-
-**3e. Bootstrap files have size limits but no relevance filtering** (`bootstrap.ts:187-239`)
-`buildBootstrapContextFiles()` respects `maxChars` (20K default) and `totalMaxChars` (150K default), and truncates with head+tail when files are too large. But it always injects all bootstrap files regardless of whether the current message relates to them.
+This means our self-correction system must be built on **observable signals** (token counts, tool call success/failure, response pattern matching, session transcript diffs), not on asking the LLM "did you do a good job?"
 
 ---
 
-## Part II: What We're Actually Building
+## Part II: Architecture
 
-No neuroscience metaphors. Each component is defined by its inputs, transformations, outputs, and decision criteria.
+### Design Principles (Stolen From the Best)
+
+1. **From Claude Code**: Clear stale tool results first — it's the single highest-ROI change
+2. **From MemGPT**: Memory pressure warnings before overflow, not just reactive compaction
+3. **From AutoGen**: Composable transform pipeline — each optimization is an independent transform
+4. **From Mem0**: Extract and curate facts, don't just summarize
+5. **From CRITIC/Voyager**: Self-correction via external signals, not LLM self-judgment
+6. **From LangGraph**: Retry with backoff + checkpoint rollback, not just "try again"
 
 ### Architecture Overview
 
 ```
-                    +---------------------------+
-                    |    CONTEXT ASSEMBLER       |
-                    |    (Replaces monolithic    |
-                    |     prompt builder)        |
-                    +---------------------------+
-                       /     |      \
-                      /      |       \
-              +------+  +----+----+  +----------+
-              |Prompt |  |History  |  |Tool      |
-              |Tiers  |  |Manager  |  |Selector  |
-              +------+  +---------+  +----------+
-                           |
-              +---------------------------+
-              |   TWO-TIER MEMORY         |
-              |                           |
-              | [Working Memory]          |
-              |   In-session state,       |
-              |   recent decisions,       |
-              |   active constraints      |
-              |                           |
-              | [Reference Memory]        |
-              |   Compressed project      |
-              |   knowledge, user prefs,  |
-              |   tool patterns           |
-              +---------------------------+
-                           |
-              +---------------------------+
-              |   CONSOLIDATION ENGINE    |
-              |                           |
-              | - Heuristic rules (free)  |
-              | - Embedding retrieval     |
-              |   (moderate cost)         |
-              | - Cheap model summary     |
-              |   (optional, explicit $)  |
-              +---------------------------+
+User Message
+     |
+     v
++--------------------------------------------+
+|         CONTEXT TRANSFORM PIPELINE          |  <- AutoGen-inspired composable transforms
+|                                             |
+|  [1. Stale Tool Result Cleaner]             |  <- Claude Code's biggest win (84% savings)
+|  [2. Tool Group Selector]                   |  <- Deterministic keyword matching
+|  [3. Weighted History Window]               |  <- RECENT/MIDDLE/OLD tiers
+|  [4. Working Memory Injector]               |  <- MemGPT-inspired core memory block
+|  [5. Tiered Prompt Builder]                 |  <- Only include what's needed this turn
+|  [6. Token Budget Enforcer]                 |  <- Hard ceiling, progressive shedding
+|                                             |
++--------------------------------------------+
+     |
+     v
++--------------------------------------------+
+|              LLM API CALL                   |
++--------------------------------------------+
+     |
+     v
++--------------------------------------------+
+|         SELF-CORRECTION LAYER               |  <- CRITIC/Voyager/LangGraph-inspired
+|                                             |
+|  [1. Tool Call Validator]                   |  <- Did the tool exist? Did it succeed?
+|  [2. Context Loss Detector]                 |  <- Does response signal missing info?
+|  [3. Loop Detector]                         |  <- Is the agent repeating itself?
+|  [4. Working Memory Updater]                |  <- Extract decisions, update state
+|  [5. Memory Pressure Monitor]               |  <- MemGPT-style proactive warning
+|                                             |
++--------------------------------------------+
+     |
+     v
+Session Transcript (JSONL, never modified destructively)
 ```
 
-### Component 1: Tiered System Prompt
+---
 
-**Input**: `PromptMode`, channel config, sandbox config, tool list, context files
-**Transformation**: Classify each section into tiers by how often it's needed
-**Output**: A smaller system prompt where rarely-needed sections are omitted by default
-**Decision criteria**: Section is Tier 0 if needed every turn; Tier 1 if needed based on channel/mode; Tier 2 if only needed when the agent encounters specific situations (and can retrieve it then)
+## Part III: The Context Transform Pipeline
 
-**Tier 0 — Always present (~300 tokens):**
-- Identity line
-- Safety rules (lines 371-377 compressed to essentials)
-- Workspace directory + guidance
-- Runtime line (model, channel, thinking level)
+Each transform is an independent function. They compose in order. Any can be disabled via config. This is directly inspired by AutoGen's `TransformMessages` architecture — the cleanest design in the field.
 
-**Tier 1 — Conditional, included when applicable (~200-800 tokens):**
-- Tool summaries for **enabled** tools (the one-line descriptions at lines 224-252, not full schemas)
-- Tool call style guidance (lines 431-435)
-- Messaging rules (only if `message` tool is available)
-- Sandbox info (only if sandbox is enabled)
-- Reaction guidance (only if reactions are configured)
-- Reasoning format (only if reasoning tags are needed)
-- Skills section (only if skills are loaded)
+### Transform 1: Stale Tool Result Cleaner
 
-**Tier 2 — Omitted from prompt, available via tools/memory:**
-- CLI Quick Reference (lines 438-445) — the agent can `read` docs if needed
-- OpenClaw Self-Update instructions (lines 450-458)
-- Model Aliases (lines 462-471)
-- Voice/TTS hints (only ~10% of sessions use TTS)
-- Heartbeat protocol (only relevant for heartbeat polls)
-- Silent reply rules (can be taught once and remembered)
-- Docs section with URLs (lines 150-165)
+**Why this is first**: Claude Code's engineering team found that clearing stale tool call results produced an **84% token reduction** and **29% performance improvement** in 100-turn evaluations. This was a bigger improvement than their summarization approach. It's the single highest-ROI optimization available.
 
-**What this changes in code**: Refactor `buildAgentSystemPrompt()` to accept a `tierLevel` parameter. Default to Tier 0+1. Tier 2 content moves to a retrievable reference that the agent can access via `read` or a new lightweight tool.
+**Input**: Session message array
+**Transformation**: For tool_result messages older than N turns (configurable, default 5):
+- Keep the tool name and a one-line summary of the result
+- Strip the full result body (file contents, command output, search results)
+- Preserve tool_use/tool_result ID pairing (critical for Anthropic API)
+**Output**: Same message array, smaller
+**Decision criteria**: Age of the tool result in turns. No scoring, no embeddings — just recency.
 
-**Estimated savings**: Current full prompt is ~2,000-4,000 tokens. Tier 0+1 is ~500-1,100 tokens. Savings: **~1,000-3,000 tokens per turn**. This is conservative — it depends on how many Tier 1 sections apply for a given session.
+```typescript
+function cleanStaleToolResults(
+  messages: AgentMessage[],
+  opts: { staleTurnThreshold: number; maxResultChars: number }
+): AgentMessage[] {
+  const recentTurnBoundary = findNthUserTurnFromEnd(messages, opts.staleTurnThreshold);
+  return messages.map((msg, i) => {
+    if (i >= recentTurnBoundary) return msg;  // Recent — keep verbatim
+    if (msg.role !== 'toolResult') return msg; // Not a tool result — skip
+    return truncateToolResult(msg, opts.maxResultChars); // Truncate old result
+  });
+}
+```
 
-### Component 2: Tool Group Selector
+**What this changes in code**: New transform applied in `compact.ts` after `sanitizeSessionHistory()` (line 558) and before `limitHistoryTurns()` (line 575). Uses the existing `stripToolResultDetails()` from `session-transcript-repair.ts` as a starting point.
 
-**Input**: User message text, session history (last 2 turns), list of available tools
-**Transformation**: Classify the user's intent into a tool group; filter tool schemas to that group + a core set
-**Output**: Reduced tool schema list sent to LLM API
-**Decision criteria**: Deterministic keyword/pattern matching, not LLM inference
+**Estimated savings**: In a 30-turn coding session, turns 1-25 likely contain large `read`, `exec`, and `grep` results. Each file read is 500-5,000 tokens. Truncating 20 stale results to ~50 tokens each saves **~10,000-50,000 tokens**. This dwarfs every other optimization.
 
-**Tool groups** (defined as a static map):
+**Failure mode**: If the LLM needs to reference an old tool result, the full result is still in the session transcript on disk. The LLM can re-read the file.
 
-| Group | Trigger Keywords/Patterns | Tools |
-|-------|--------------------------|-------|
-| **Core** (always included) | — | read, write, edit, exec, ls |
-| **File Operations** | "file", "create", "delete", "move", "rename", "patch", "diff" | apply_patch, grep, find |
-| **Research** | "search", "find", "look up", "what is", "how to", URL patterns | web_search, web_fetch, grep, find |
-| **Git/Code** | "commit", "push", "pull", "branch", "git", "deploy" | exec, grep, find |
-| **Messaging** | "send", "message", "tell", "notify", reply context from group chat | message, sessions_send, sessions_list |
-| **Orchestration** | "spawn", "agent", "sub-agent", "background", "cron", "schedule", "remind" | sessions_spawn, subagents, agents_list, sessions_list, sessions_history, cron |
-| **Browser** | "browse", "open", "screenshot", "page", URL patterns | browser, web_fetch |
+### Transform 2: Tool Group Selector
+
+**Input**: User message text, last 2 assistant tool calls, available tool list
+**Transformation**: Classify intent → select relevant tool groups → filter schemas
+**Output**: Reduced tool array
+**Decision criteria**: Deterministic keyword matching + recent tool usage history
+
+**Tool groups** (static map):
+
+| Group | Triggers | Tools |
+|-------|----------|-------|
+| **Core** (always) | — | read, write, edit, exec, ls |
+| **File Ops** | "file", "create", "delete", "move", "rename", "patch", "diff" | apply_patch, grep, find |
+| **Research** | "search", "find out", "look up", "what is", "how to", URL patterns | web_search, web_fetch, grep, find |
+| **Messaging** | "send", "message", "tell", "notify", group chat context | message, sessions_send, sessions_list |
+| **Orchestration** | "spawn", "agent", "background", "cron", "schedule", "remind" | sessions_spawn, subagents, agents_list, sessions_list, sessions_history, cron |
+| **Browser** | "browse", "open page", "screenshot", URL in message | browser, web_fetch |
 | **Media** | "image", "photo", "picture", "canvas", "draw" | image, canvas |
 | **System** | "status", "update", "config", "restart", "gateway" | gateway, session_status |
 | **Nodes** | "node", "camera", "screen", "device" | nodes |
 
-**Algorithm**:
+**Additional signal**: If the agent used `grep` and `edit` in the last 2 turns, include File Ops group even without keyword triggers (momentum-based selection).
+
+**Fallback on miss**: Handled by the Self-Correction Layer (Transform validates tool call → retry with missing tool → log pattern).
+
+**Estimated savings**: 25 schemas → 5-8 relevant. ~60-80 tokens per schema. **~900-1,600 tokens/turn**.
+
+### Transform 3: Weighted History Window
+
+**Input**: Full session message array
+**Transformation**: Three recency tiers instead of flat cutoff
+**Output**: Shorter message array
+
 ```
-1. Scan user message for trigger keywords (case-insensitive, word-boundary matching)
-2. Collect all matching groups
-3. If no groups match, include Core + File Operations + Research (safe default)
-4. Union all tools from matched groups + Core
-5. If more than 12 tools selected, keep all (diminishing returns on further filtering)
-6. Filter available tool schemas to only selected tools
-```
-
-**Fallback**: If the LLM requests a tool that wasn't included in the schema set, this is a signal the selector was wrong. Log the miss, include the missing tool schema in a retry, and add the pattern to the group mapping. Over time, the selector improves.
-
-**What this changes in code**: New function `selectToolsForTurn()` called in `compact.ts`/`run.ts` before `createOpenClawCodingTools()` or at the `splitSdkTools()` stage. The function filters the tools array before it's passed to the agent session.
-
-**Estimated savings**: Currently 25+ full tool schemas. Typical turn needs 5-8. JSON schemas average ~60-80 tokens each. Removing 15-20 irrelevant schemas saves **~900-1,600 tokens per turn**.
-
-### Component 3: Sliding Window with Recency Weighting
-
-**Input**: Full session history (message array from SessionManager)
-**Transformation**: Replace the flat `limitHistoryTurns()` with a weighted window
-**Output**: A shorter message array where old turns are summarized and recent turns are preserved verbatim
-**Decision criteria**: Recency-based tiers, not a flat cutoff
-
-**Algorithm**:
-```
-Given N messages in session history and a token budget B:
-
-1. RECENT window (last 3 user turns + responses): Include verbatim. These are the
-   active context the LLM needs for coherence.
-
-2. MIDDLE window (turns 4-10 back): Include only the user message + first sentence
-   of assistant response + any tool calls that produced results. Strip verbose tool
-   outputs (keep only tool name + truncated result summary).
-
-3. OLD window (turns 11+): Drop entirely from context. They're already in the
-   session transcript on disk and can be retrieved via memory_search if needed.
-
-4. If a compaction summary exists from a previous compaction, prepend it as the
-   first message (preserving existing behavior).
-
-5. Token budget check: After applying the window, estimate tokens. If still over
-   budget, progressively shrink MIDDLE window (remove oldest MIDDLE turns first).
+RECENT (last 3 user turns + responses):  Verbatim. Full tool results.
+MIDDLE (turns 4-10 back):               User message + first 200 chars of
+                                         assistant response + tool names only.
+OLD (turns 11+):                         Dropped. Available via memory_search
+                                         and session transcript on disk.
 ```
 
-**What this changes in code**: Replace `limitHistoryTurns()` in `history.ts` with `buildWeightedHistory()`. Called at the same point in `compact.ts:574-587` where `limitHistoryTurns()` is currently called. The existing compaction system remains as the emergency fallback if the weighted window still overflows.
+If a compaction summary exists from a previous compaction, it stays at position [0] (same as MemGPT's recursive summary approach).
 
-**Estimated savings**: A 20-turn session currently sends all 20 turns (~8,000-15,000 tokens of history). With the sliding window, we send ~3 full turns + ~4 compressed turns + 0 old turns. Estimated: **~3,000-8,000 tokens saved per turn in mid-to-long sessions**.
+**Token budget check**: After windowing, estimate total. If over budget, shrink MIDDLE (remove oldest first). If still over, trigger existing compaction as emergency fallback.
 
-### Component 4: Two-Tier Memory
+**What this replaces**: `limitHistoryTurns()` in `history.ts:15-36`. Called at the same point in `compact.ts:575`.
 
-Instead of four memory tiers (episodic, semantic, procedural, predictive), start with two:
+**Estimated savings**: 20-turn session: all 20 turns (~8,000-15,000 tokens) → 3 full + 7 compressed (~4,400 tokens). **~3,600-10,600 tokens saved**.
 
-**Working Memory** — Session-scoped, in-memory state:
+### Transform 4: Working Memory Injector
+
+**Inspired by**: MemGPT's core memory blocks (always in-context, self-editable) + Mem0's fact extraction.
+
+**Input**: WorkingMemory state object (maintained across turns)
+**Transformation**: Serialize to a compact structured block, inject into context
+**Output**: A `[Working Memory]` block prepended to the message array
+
 ```typescript
 interface WorkingMemory {
-  currentTask: string | null;           // extracted from last user message
-  recentDecisions: string[];            // last 5 decisions (from assistant responses)
-  activeConstraints: string[];          // extracted "don't", "must", "always" patterns
-  toolsUsedThisSession: Set<string>;    // for tool group prediction
+  sessionSummary: string | null;     // Periodic cheap-model summary, if available
+  currentTask: string | null;        // Extracted from last user message
+  recentDecisions: string[];         // Last 5 decisions (regex-extracted)
+  activeConstraints: string[];       // "don't", "must", "always" patterns
+  keyFacts: string[];                // Mem0-style extracted facts (max 10)
+  toolsUsedThisSession: Set<string>; // Feeds tool group predictor
   turnCount: number;
+  lastCompactionTurn: number;        // When was context last compacted
 }
 ```
-This is cheap — it's a plain object updated after each turn via pattern matching. No LLM cost. Injected as a structured block at the top of context, replacing the need to re-read entire conversation history.
 
-**Reference Memory** — Persistent, SQLite-backed:
-This is the existing `src/memory/` infrastructure (vector embeddings + hybrid search). No new tables needed. The change is in *when* and *how* it's queried:
-- Currently: the agent decides when to call `memory_search` (reactive)
-- New: the system proactively retrieves the top-3 most relevant memory chunks based on the user's message embedding and injects them into context (if they score above a relevance threshold)
-- The agent can still call `memory_search` explicitly for deeper retrieval
+Serialized as ~200-400 tokens. Much cheaper than including 10+ old turns to maintain continuity.
 
-**What this changes in code**:
-- New `src/agents/context/working-memory.ts` — maintains session state, updated after each turn
-- Modify the context assembly in `compact.ts` / `run.ts` to inject working memory as a structured block
-- Add proactive memory retrieval in the context assembly path (embed user message, query existing memory store, inject top results if above threshold)
+**Fact extraction** (Mem0-inspired, but heuristic not LLM):
+- "User prefers X" / "User wants X" → keyFact
+- "The project uses X" / "We're using X" → keyFact
+- Constraints: "don't modify X", "must support X", "always use X" → activeConstraint
+- Decisions: "I'll use X", "Let's go with X", "decided on X" → recentDecision
 
-**Estimated savings**: Working memory replaces the need to include old turns for context continuity. Combined with Component 3 (sliding window), the redundancy between "full history for context" and "working memory state" is eliminated. Additional savings from proactive retrieval: **~500-1,000 tokens** (the agent makes fewer explicit `memory_search` calls, reducing tool call overhead).
+**Self-editing** (MemGPT-inspired): The agent can update working memory via a lightweight tool call. When the agent says "I'll remember that you prefer TypeScript," it can call `working_memory_update(key="preference", value="user prefers TypeScript")`. This is optional — the heuristic extraction handles most cases.
 
-### Component 5: Consolidation Between Turns
+### Transform 5: Tiered Prompt Builder
 
-**What it does**: After each turn completes, extract structured data from the turn and update working memory. This is local computation — no LLM calls.
+**Input**: PromptMode, channel config, sandbox config, context files
+**Output**: System prompt with only relevant sections
 
-**Mechanism** (explicitly addressing the "no free lunch" concern):
+**Tier 0 — Always (~300 tokens)**: Identity, safety essentials, workspace, runtime
+**Tier 1 — Conditional (~200-800 tokens)**: Tool summaries, messaging, sandbox, reactions, skills
+**Tier 2 — Omitted**: CLI reference, self-update, model aliases, TTS, heartbeat, silent replies, docs URLs
 
-**Tier 1 — Heuristic rules (free, always on):**
-- Keep last N tool results, drop duplicates (e.g., multiple `read` calls to the same file → keep latest)
-- Compress repeated patterns (e.g., "user asked about file X" 3 times → single entry)
-- Extract decisions from assistant response via regex: patterns like "I'll", "Let's", "decided to", "going with"
-- Track tools used per session (for tool group prediction)
-- Truncate tool results to first 200 chars (the full result is in the transcript on disk)
+Tier 2 content written to a reference file at `~/.openclaw/reference-prompt.md` that the agent can `read` if needed. The agent is told in Tier 0: "Extended instructions available at {path} — read if you need CLI commands, update procedures, or protocol details."
 
-**Tier 2 — Embedding-based retrieval (moderate cost, opt-in):**
-- When proactive memory retrieval is enabled, compute embedding for each user message
-- Use existing `src/memory/embeddings.ts` infrastructure — this is already built
-- Cost: one embedding API call per turn (~$0.0001 with ada-002 or free with local model)
-- Retrieve top-3 chunks from reference memory, inject if similarity > threshold
+**Estimated savings**: ~2,000-4,000 → ~500-1,100 tokens. **~1,000-3,000 tokens/turn**.
 
-**Tier 3 — Cheap model summarization (explicit cost, opt-in):**
-- Every N turns (configurable, default 20), run a cheap model (Haiku or local) to summarize the accumulated working memory into a compressed block
-- This replaces the current compaction's emergency summarization with a planned, periodic one
-- Cost: ~$0.001-0.005 per summarization call
-- Stored as a "session summary" that prepends to context on future turns
+### Transform 6: Token Budget Enforcer
 
-**What this changes in code**: New post-turn hook in `pi-embedded-subscribe.ts` that calls `consolidateAfterTurn()`. The function updates the WorkingMemory object and optionally triggers embedding computation and periodic summarization.
+**Inspired by**: MemGPT's two-stage eviction (warn at 70%, flush at 100%).
 
----
+**Input**: Assembled context (system prompt + tools + history + working memory)
+**Transformation**: Progressive shedding to fit within budget
+**Output**: Context that fits within the model's context window with safety margin
 
-## Part III: Failure Modes and Degradation Strategy
+```
+At 70% capacity:  Inject memory pressure note into working memory.
+                  "Context is filling. Key information should be in
+                  working memory or reference memory."
 
-Each component has an explicit fallback for when it makes a wrong decision:
+At 85% capacity:  Shrink MIDDLE window. Remove oldest MIDDLE turns.
+                  Truncate remaining tool results more aggressively.
 
-### Tool Selector Misses
+At 95% capacity:  Drop MIDDLE window entirely. Keep only RECENT + working
+                  memory + system prompt. Log warning.
 
-**Failure**: LLM tries to call a tool that wasn't included in the filtered schema set.
-**Detection**: The SDK will report a tool call for an unknown tool name.
-**Recovery**:
-1. Log the miss with the user message that caused it
-2. Re-run the turn with the missing tool added to the schema set
-3. Add the trigger pattern to the tool group mapping for future turns
-**Degradation**: First miss costs one retry. Subsequent misses for the same pattern don't recur.
+At 100%:          Trigger existing compaction (summarizeInStages).
+                  This is the emergency fallback — should rarely fire
+                  if the pipeline is working.
+```
 
-### Sliding Window Loses Critical Context
-
-**Failure**: The LLM's response indicates it's missing context ("I don't have information about X", "Could you remind me...").
-**Detection**: Pattern match on the LLM response for uncertainty/missing-context signals.
-**Recovery**:
-1. Expand the MIDDLE window for the next turn (include 5 more turns from history)
-2. Trigger a proactive memory search for the topic mentioned in the uncertainty signal
-3. If the context was in OLD turns, it should already be in the session transcript — inject the relevant turns back
-**Degradation**: Graceful — the window expands temporarily, then contracts again when the context gap is resolved.
-
-### Compaction Summary Loses Detail
-
-**Failure**: A periodic summarization loses a critical detail that the user later asks about.
-**Detection**: The agent can't answer a question that it previously had context for.
-**Recovery**: The full session transcript (JSONL) is never modified. The `memory_search` tool can still retrieve the original content. The summarization is additive — it creates a summary that's *prepended* to context, but the original data remains on disk.
-**Degradation**: Worst case, the agent has to do an explicit `memory_search` or `read` of the session transcript. This costs a tool call round-trip but doesn't lose data.
-
-### Heuristic Consolidation Extracts Wrong Decisions
-
-**Failure**: The regex-based decision extractor misidentifies a conditional statement as a decision (e.g., "I'll do X if you want" tagged as decided).
-**Detection**: Hard to detect automatically. The working memory will contain a false decision.
-**Mitigation**: Working memory decisions have a max TTL (cleared after 10 turns of not being referenced). The LLM receives the full RECENT window verbatim, so it has ground truth for the last 3 turns. False decisions in working memory can only mislead context for messages referencing turns 4+ back.
-**Degradation**: Low impact — the LLM's own judgment takes precedence over working memory hints.
+The 70% memory pressure warning is borrowed directly from MemGPT. It gives the agent a chance to explicitly save important context to working memory or reference memory before forced eviction.
 
 ---
 
-## Part IV: Implementation Roadmap
+## Part IV: The Self-Correction Layer
 
-### Phase 1: System Prompt Compression + Tool Selection
+Every successful self-correcting system uses **external signals**, not LLM self-judgment (Huang et al., ICLR 2024). Our correction layer uses five external signal sources.
 
-**Changes to existing files:**
-- `src/agents/system-prompt.ts` — Refactor `buildAgentSystemPrompt()` to support tier-based section inclusion. Add `PromptTier` parameter ("compact" | "standard" | "full"). Default to "compact" for normal turns, "standard" for first turn of session, "full" for diagnostic mode.
-- `src/agents/system-prompt.ts` — Move Tier 2 content (CLI reference, self-update, model aliases, docs URLs, heartbeat, silent replies) into a separate retrievable block stored as a bootstrap file or internal reference.
+### Corrector 1: Tool Call Validator
 
-**New files:**
-- `src/agents/context/tool-groups.ts` — Static tool group definitions + `selectToolsForTurn(userMessage, sessionHistory, availableTools)` function. ~150 lines.
+**Inspired by**: CRITIC (external tool verification), Voyager (execution error detection), LangGraph (retry with backoff).
 
-**Integration point:** The tool filtering happens in `compact.ts` after `createOpenClawCodingTools()` and before `splitSdkTools()`. The tool array is filtered to include only relevant tools.
+**Signal**: Tool call success/failure from the SDK.
+**Detection**: Three failure types:
+1. **Unknown tool**: LLM called a tool that was filtered out by the Tool Group Selector
+2. **Tool execution error**: Tool ran but returned an error
+3. **Malformed call**: Invalid parameters or JSON
 
-**What to measure (baselines needed before starting):**
-- Token count of system prompt per turn across 50+ sessions (log `estimateTokens()` on the system prompt string)
-- Token count of tool schemas per turn (log `estimateTokens()` on the serialized tool definitions)
-- Compaction frequency (how often `compactEmbeddedPiSessionDirect()` is called)
-- Session length in turns before first compaction
+**Correction**:
 
-**Target (based on measured baselines):** 35-45% reduction in per-turn system prompt + tool schema tokens. Exact number depends on baseline measurement.
+| Failure | Action | Cost |
+|---------|--------|------|
+| Unknown tool | Add tool to schema set, retry turn. Log miss for pattern improvement. | 1 retry |
+| Execution error | Feed error message back to LLM (existing behavior). If same error 3x, suggest alternative approach. | 0 extra (existing) |
+| Malformed call | Feed parsing error back. If 2x consecutive malformed calls, switch to stricter schema validation. | 0 extra (existing) |
 
-### Phase 2: Sliding Window + Working Memory
+**Retry policy** (LangGraph-inspired):
+```typescript
+const toolRetryPolicy = {
+  maxAttempts: 3,
+  backoff: 'none',        // Tool retries are cheap — just re-include the schema
+  retryOn: ['unknown_tool'],
+  failAction: 'include_all_tools_and_retry'  // Nuclear option: send all schemas
+};
+```
 
-**Changes to existing files:**
-- `src/agents/pi-embedded-runner/history.ts` — Add `buildWeightedHistory()` alongside existing `limitHistoryTurns()`. The existing function remains as fallback.
-- `src/agents/pi-embedded-runner/compact.ts` (lines 574-587) — Replace the `limitHistoryTurns()` call with `buildWeightedHistory()` when the feature is enabled.
+### Corrector 2: Context Loss Detector
 
-**New files:**
-- `src/agents/context/working-memory.ts` — WorkingMemory class. ~200 lines. Updated after each turn via heuristic extraction from the completed turn.
-- `src/agents/context/turn-extractor.ts` — Functions to extract decisions, constraints, and topics from a completed turn. ~150 lines. Pure regex/pattern matching, no LLM.
+**Inspired by**: MemGPT's proactive memory warnings, the "lost in the middle" problem research, production context integrity systems.
 
-**Integration point:** Working memory is initialized when a session starts (from the session transcript if it exists), updated after each turn in the post-turn path (after `flushPendingToolResultsAfterIdle()` in `compact.ts:696`), and injected as a structured block in the context assembly.
+**Signal**: Pattern matching on the LLM's response text.
+**Detection patterns**:
+- "I don't have information about"
+- "Could you remind me"
+- "I'm not sure what you're referring to"
+- "Based on what I can see" (when the full context should be available)
+- "Let me search for" / "Let me check" when the information was in recent history
+- Agent asks a question it already answered earlier in the session
 
-**What to measure:**
-- Token count of session history per turn (baseline vs. weighted window)
-- Compaction frequency (should decrease significantly)
-- Task completion rate (should stay the same or improve)
-- Tool selector miss rate (from Phase 1 logging)
+```typescript
+const CONTEXT_LOSS_PATTERNS = [
+  /I don't have (?:access to|information about)/i,
+  /could you (?:remind|tell) me (?:again|what)/i,
+  /I'm not sure what (?:you're|you are) referring to/i,
+  /I don't see (?:any|that) (?:in|from) (?:the|our|my) (?:context|conversation|history)/i,
+  /(?:can you|could you) (?:provide|share|paste) (?:that|it) again/i,
+];
+```
 
-**Target:** Cumulative 55-65% reduction in total context tokens vs. pre-Phase-1 baseline.
+**Correction**:
+1. Log the context loss event with the specific pattern matched
+2. For next turn: expand MIDDLE window by 5 turns (temporary)
+3. Trigger proactive memory search for the topic the LLM was uncertain about
+4. If the lost context was a tool result, re-inject that specific result
+5. After 2 turns without another context loss signal, contract window back to normal
 
-### Phase 3: Adaptive Context Manager
+**Correction cost**: 0 extra LLM calls. This is all local computation + memory retrieval.
 
-**Changes to existing files:**
-- `src/agents/pi-embedded-runner/compact.ts` — Replace the static context assembly with an adaptive manager that adjusts based on task type and available budget.
+### Corrector 3: Loop Detector
 
-**New files:**
-- `src/agents/context/context-manager.ts` — Central coordinator. Takes the working memory, reference memory results, weighted history, and tool schemas, then assembles the final context within a token budget. ~300 lines.
-- `src/agents/context/proactive-retrieval.ts` — Embeds the user message and queries reference memory. Injects top results if relevant. ~100 lines. Uses existing embedding infrastructure.
+**Inspired by**: AutoGPT's loop problem (unsolved, major failure mode), Voyager's "4 attempts then abandon" policy.
 
-**What makes this different from Phases 1-2:** Phases 1-2 are independent optimizations. Phase 3 makes them work together. The context manager dynamically allocates token budget between system prompt, tools, history, working memory, and proactive retrieval based on what the current turn needs. If the user is asking a simple question, more budget goes to working memory and less to tool schemas. If the user is doing complex file editing, more budget goes to tools and recent history.
+**Signal**: Comparison of current action with recent action history.
+**Detection**: Three types of loops:
 
-**Recovery mechanisms:**
-- If the LLM signals missing context → expand history window next turn
-- If tool selector misses → include missing tool + log for pattern improvement
-- If summary is stale → trigger fresh summarization before next turn
+1. **Exact tool loop**: Same tool called with identical parameters 3+ times in a row
+2. **Semantic loop**: Agent generates substantially similar text (>80% token overlap) on consecutive turns
+3. **Oscillation**: Agent alternates between two actions (A→B→A→B) for 3+ cycles
 
-**Target:** Cumulative 65-75% reduction in total context tokens. Higher context relevance (measured as: percentage of injected tokens that the LLM actually references in its response — logged and measured).
+```typescript
+function detectLoop(currentAction: Action, recentActions: Action[]): LoopType | null {
+  // Exact match: hash tool name + params, check for 3+ consecutive matches
+  const currentHash = hashAction(currentAction);
+  const consecutiveMatches = countConsecutiveMatches(currentHash, recentActions.map(hashAction));
+  if (consecutiveMatches >= 3) return 'exact';
 
-**No Phase 4.** If Phases 1-3 deliver the measured targets, the system is done. If they don't, the right response is to debug and improve the concrete mechanisms, not to add another abstraction layer on top.
+  // Semantic overlap: compare assistant text with previous N responses
+  const overlapRatio = computeTokenOverlap(currentAction.text, recentActions[0]?.text);
+  if (overlapRatio > 0.8) return 'semantic';
+
+  // Oscillation: check A-B-A-B pattern
+  if (recentActions.length >= 4) {
+    const [a, b, c, d] = recentActions.slice(-4).map(hashAction);
+    if (a === c && b === d && a !== b) return 'oscillation';
+  }
+
+  return null;
+}
+```
+
+**Correction** (Voyager-inspired escalation):
+1. **First detection**: Inject system message: "You appear to be repeating the same action. Consider a different approach."
+2. **Second detection**: Inject more specific guidance: "Previous attempts with {tool} and {params} have not produced progress. Try: {alternative suggestion based on tool type}."
+3. **Third detection**: Force a different code path. If looping on `exec`, suggest `read` first. If looping on `web_search`, suggest asking the user for clarification.
+4. **Fourth detection**: Abandon the current approach. Inject: "This approach is not making progress after 4 attempts. Please ask the user for guidance or try a fundamentally different strategy."
+
+**Cost**: 0 extra LLM calls. Detection is hashing + string comparison. Correction is injected system messages.
+
+### Corrector 4: Working Memory Updater
+
+**Inspired by**: Mem0's extract-then-curate pipeline, Voyager's skill library (successful patterns get saved).
+
+**Signal**: Completed turn data (user message + assistant response + tool calls + tool results).
+**Trigger**: Runs after every turn, synchronously before the response is sent (fast — ~5ms of regex).
+
+**Extraction rules** (heuristic, not LLM):
+```typescript
+function extractFromTurn(turn: CompletedTurn): WorkingMemoryUpdate {
+  return {
+    // Decisions: "I'll", "Let's", "going with", "decided to"
+    decisions: extractDecisions(turn.assistantText),
+
+    // Constraints: "don't", "must", "always", "never"
+    constraints: extractConstraints(turn.userText + turn.assistantText),
+
+    // Facts: "X is Y", "uses X", "prefers X", "the project has X"
+    facts: extractFacts(turn.userText + turn.assistantText),
+
+    // Tools used (for group predictor momentum)
+    toolsUsed: turn.toolCalls.map(tc => tc.name),
+
+    // Current task (from user message intent)
+    currentTask: extractTaskIntent(turn.userText),
+  };
+}
+```
+
+**Curate rules** (Mem0-inspired ADD/UPDATE/DELETE, but heuristic):
+- New fact that doesn't contradict existing → ADD
+- New fact that contradicts existing → UPDATE (replace old with new)
+- Fact older than `decisionTtlTurns` and not referenced → DELETE
+- Max 10 keyFacts, 5 decisions, 5 constraints — oldest evicted when full
+
+**Cost**: 0. Pure string manipulation.
+
+### Corrector 5: Memory Pressure Monitor
+
+**Inspired by**: MemGPT's two-stage memory pressure system.
+
+**Signal**: Token count of assembled context vs. model context window.
+**Trigger**: Runs as part of Transform 6 (Token Budget Enforcer), but also monitored across turns.
+
+**Escalation levels**:
+
+| Level | Threshold | Action |
+|-------|-----------|--------|
+| **Green** | <60% | Normal operation |
+| **Yellow** | 60-75% | Log warning. Add to working memory: "Context at {pct}%. Consider saving important info." |
+| **Orange** | 75-90% | Shrink MIDDLE window. Truncate tool results more aggressively. Consider periodic summary if not recently done. |
+| **Red** | 90-95% | Drop MIDDLE window. Keep RECENT + working memory only. Trigger cheap-model periodic summary if enabled. |
+| **Critical** | >95% | Trigger existing compaction (`summarizeInStages`). Emergency fallback. |
+
+The key insight from MemGPT: the agent itself should know about memory pressure. At Yellow level, the working memory block includes a note about context capacity. This lets the agent make better decisions — e.g., storing important findings in archival/reference memory before they get evicted, or being more concise in its responses.
 
 ---
 
-## Part V: Configuration
+## Part V: What We're NOT Building
 
-All features are behind config flags in the existing `openclaw config` system:
+Explicit scope exclusions based on the research:
+
+1. **No LLM-based memory curation per turn**. Mem0 uses an LLM to decide ADD/UPDATE/DELETE for every memory operation. At $0.01-0.05 per turn, this adds up. Our heuristic extraction is free and handles 80% of cases. The remaining 20% can be addressed by the periodic cheap-model summary (opt-in).
+
+2. **No knowledge graph**. Mem0's graph memory is powerful but their open-source version doesn't include it, and it requires Neo4j/Memgraph infrastructure. The ROI doesn't justify the complexity for OpenClaw's scale. Revisit if the two-tier memory proves insufficient.
+
+3. **No LLMLingua-style BERT compression**. AutoGen integrates LLMLingua for token-level compression. It's impressive but adds a Python dependency, a separate model to load, and latency. Our stale tool result cleaner achieves similar savings (84% in Claude Code's data) with zero model overhead.
+
+4. **No heartbeat/chain-of-thought system**. MemGPT's heartbeat mechanism was deprecated in Letta V1 because modern models handle multi-step tool calling natively. OpenClaw already supports multi-step execution without explicit heartbeats.
+
+5. **No "consciousness simulation" or meta-cognitive layer**. Killed in v2, stays killed. Observable signals (Correctors 1-5) are more reliable than asking the LLM about its own state.
+
+---
+
+## Part VI: Implementation Roadmap
+
+### Phase 0: Instrumentation (Before Any Code Changes)
+
+Add token logging to measure baselines. Modify `compact.ts` and `run.ts` to log:
+- System prompt token count per turn
+- Tool schema token count per turn
+- Session history token count per turn
+- Total context token count per turn
+- Compaction frequency and trigger reason
+- Memory pressure level per turn
+
+Run for 1-2 weeks across real sessions. Set targets based on measured data.
+
+**New file**: `src/agents/context/telemetry.ts` — logging functions called at key points in the pipeline. ~80 lines.
+
+### Phase 1: Stale Tool Cleaner + Tool Groups + Prompt Tiers
+
+The three transforms that require the least architectural change and deliver the most savings.
+
+**Changes to existing files:**
+- `src/agents/system-prompt.ts` — Add `PromptTier` parameter. Wrap Tier 2 sections in conditionals.
+- `src/agents/pi-embedded-runner/compact.ts` — Add stale tool result cleaning after `sanitizeSessionHistory()` (line 558). Add tool filtering after `createOpenClawCodingTools()` (line 359).
+
+**New files:**
+- `src/agents/context/stale-tool-cleaner.ts` — `cleanStaleToolResults()`. ~100 lines.
+- `src/agents/context/tool-groups.ts` — Static group map + `selectToolsForTurn()`. ~150 lines.
+- `src/agents/context/prompt-reference.ts` — Writes Tier 2 content to reference file. ~60 lines.
+- `src/agents/context/telemetry.ts` — Token count logging. ~80 lines.
+
+**Target**: 40-55% reduction in total per-turn context tokens. The stale tool cleaner alone should deliver most of this for sessions >10 turns.
+
+### Phase 2: Weighted History + Working Memory + Self-Correction
+
+The sliding window, working memory, and the five correctors.
+
+**Changes to existing files:**
+- `src/agents/pi-embedded-runner/history.ts` — Add `buildWeightedHistory()`.
+- `src/agents/pi-embedded-runner/compact.ts` — Replace `limitHistoryTurns()` call with `buildWeightedHistory()`. Add post-turn hook for working memory update and self-correction.
+
+**New files:**
+- `src/agents/context/weighted-history.ts` — `buildWeightedHistory()`. ~150 lines.
+- `src/agents/context/working-memory.ts` — WorkingMemory class + serialization. ~200 lines.
+- `src/agents/context/turn-extractor.ts` — Heuristic extraction (decisions, constraints, facts). ~150 lines.
+- `src/agents/context/self-correction.ts` — All 5 correctors. ~300 lines.
+- `src/agents/context/loop-detector.ts` — Action hashing + pattern detection. ~100 lines.
+- `src/agents/context/context-loss-detector.ts` — Response pattern matching. ~80 lines.
+
+**Target**: Cumulative 60-70% reduction. Near-zero compaction triggers for sessions <50 turns.
+
+### Phase 3: Adaptive Budget + Proactive Retrieval
+
+The token budget enforcer with MemGPT-style memory pressure, and proactive memory injection.
+
+**Changes to existing files:**
+- `src/agents/pi-embedded-runner/compact.ts` — Replace static context assembly with adaptive budget manager.
+
+**New files:**
+- `src/agents/context/budget-enforcer.ts` — Progressive shedding with pressure levels. ~150 lines.
+- `src/agents/context/proactive-retrieval.ts` — Embed user message, query memory, inject. ~100 lines.
+- `src/agents/context/context-manager.ts` — Coordinates all transforms and correctors. ~250 lines.
+
+**Target**: Cumulative 65-75% reduction. Self-correction catches 90%+ of context loss events. Compaction becomes rare (emergency only).
+
+---
+
+## Part VII: Configuration
 
 ```yaml
 agents:
   defaults:
     context:
-      enabled: true                         # Master toggle for new context system
-      promptTier: "compact"                 # "compact" | "standard" | "full"
+      enabled: true
+      promptTier: "compact"               # "compact" | "standard" | "full"
+
+      staleToolCleaner:
+        enabled: true
+        staleTurnThreshold: 5             # Turns before tool results get truncated
+        maxResultChars: 200               # Max chars to keep from stale results
+
       toolSelection:
-        enabled: true                       # Group-based tool filtering
-        alwaysInclude: ["read", "write", "edit", "exec", "ls"]  # Core tools
-        maxTools: 12                        # Upper bound before filtering stops
+        enabled: true
+        alwaysInclude: ["read", "write", "edit", "exec", "ls"]
+        maxTools: 12
+        useMomentum: true                 # Include groups from recent tool usage
+
       history:
-        recentWindow: 3                     # Full turns to keep verbatim
-        middleWindow: 7                     # Compressed turns to keep
-        middleTruncateChars: 200            # Max chars per middle-window message
+        recentWindow: 3                   # Full turns to keep verbatim
+        middleWindow: 7                   # Compressed turns to keep
+        middleTruncateChars: 200
+
       workingMemory:
         enabled: true
-        maxDecisions: 5                     # Recent decisions to track
-        decisionTtlTurns: 10               # Clear after N turns unreferenced
+        maxFacts: 10
+        maxDecisions: 5
+        maxConstraints: 5
+        decisionTtlTurns: 10
+        selfEditTool: false               # Agent can update via tool call (opt-in)
+
+      selfCorrection:
+        toolCallValidator: true
+        contextLossDetector: true
+        loopDetector: true
+        loopMaxAttempts: 4                # Voyager-style abandon after N
+        memoryPressureWarnings: true
+
       consolidation:
-        heuristic: true                     # Free pattern-matching extraction
-        embeddingRetrieval: true            # Proactive memory search per turn
+        heuristic: true
+        embeddingRetrieval: false          # Proactive memory search (Phase 3)
         periodicSummary:
-          enabled: false                    # Opt-in cheap-model summarization
+          enabled: false
           everyNTurns: 20
-          model: "haiku"                    # Model for periodic summarization
-      fallback:
-        expandOnUncertainty: true           # Auto-expand window on missing context
-        retryOnToolMiss: true               # Retry with missing tool on selector miss
+          model: "haiku"
+
+      budget:
+        yellowThreshold: 0.60
+        orangeThreshold: 0.75
+        redThreshold: 0.90
+        criticalThreshold: 0.95
 ```
 
-**Backward compatibility:**
-- `context.enabled: false` → current behavior, no changes
-- Each sub-feature can be toggled independently
-- Existing compaction (`compaction.ts`) remains as emergency fallback even when new system is active
+**Backward compatibility**: `context.enabled: false` → all current behavior unchanged. Each sub-feature independently toggleable.
 
 ---
 
-## Part VI: Migration Strategy
+## Part VIII: Failure Modes
 
-### Rollout
-
-1. **Instrument first**: Before any code changes, add token logging to measure baselines across system prompt, tool schemas, session history, and total context per turn. Run for 1-2 weeks across real sessions.
-2. **Phase 1 ships as opt-in**: `context.enabled: true` enables tiered prompt + tool selection. Measure delta against baselines.
-3. **Phase 2 ships after Phase 1 is validated**: Sliding window + working memory activate together. Measure again.
-4. **Phase 3 ships after Phase 2 is validated**: Adaptive manager coordinates all components.
-
-### Data Safety
-
-- Session JSONL files are never modified destructively
-- Working memory is ephemeral (in-memory per session, reconstructed from transcript on restart)
-- No new database tables required for Phases 1-2
-- Phase 3's proactive retrieval uses the existing memory store — no schema changes
-
-### Rollback
-
-- Any feature can be disabled via config without data loss
-- The existing compaction system (`compaction.ts`, `summarizeInStages()`) continues to function as the emergency overflow handler regardless of whether the new system is active
+| Component | Failure | Detection | Recovery | Cost |
+|-----------|---------|-----------|----------|------|
+| Stale tool cleaner | LLM needs old tool result | Context loss patterns in response | Re-inject specific result, expand staleTurnThreshold | 0 LLM calls |
+| Tool group selector | LLM calls filtered-out tool | SDK reports unknown tool | Retry with tool added, log pattern | 1 retry |
+| Weighted history | Important old context dropped | Context loss patterns in response | Expand MIDDLE window temporarily, search memory | 0 LLM calls |
+| Working memory | False decision extraction | Hard to detect; TTL limits damage | Decisions expire after 10 turns. RECENT window has ground truth | 0 |
+| Loop detector | False positive (detects loop that isn't one) | Agent reports being interrupted | Disable loop correction for 5 turns, log false positive | 0 |
+| Context loss detector | False positive | Agent responds about a different "loss" | No harm — expanding window temporarily is cheap | 0 |
+| Budget enforcer | Too aggressive shedding | Multiple context loss detections in sequence | Raise pressure thresholds for this session | 0 |
+| Periodic summary | Loses critical detail | Agent can't answer about something it previously knew | Full transcript on disk. memory_search retrieves original. | 1 tool call |
+| Entire pipeline | Catastrophic regression | Task completion rate drops in A/B testing | `context.enabled: false` — instant rollback to current system | 0 |
 
 ---
 
-## Part VII: File Structure
+## Part IX: File Structure
 
 ```
 src/agents/context/
-  index.ts                    # Public API
-  tool-groups.ts              # Static tool group definitions + selectToolsForTurn()
-  working-memory.ts           # WorkingMemory class (session-scoped state)
-  turn-extractor.ts           # Heuristic extraction (decisions, constraints, topics)
-  weighted-history.ts         # buildWeightedHistory() (replaces limitHistoryTurns)
-  context-manager.ts          # Phase 3: adaptive context assembly coordinator
-  proactive-retrieval.ts      # Phase 3: embedding-based proactive memory injection
+  index.ts                    # Public API — exports all transforms and correctors
+  telemetry.ts                # Token count logging at pipeline stages
+  stale-tool-cleaner.ts       # Transform 1: Clear old tool results
+  tool-groups.ts              # Transform 2: Keyword-based tool filtering
+  weighted-history.ts         # Transform 3: RECENT/MIDDLE/OLD window
+  working-memory.ts           # Transform 4: Session-scoped state
+  prompt-tiers.ts             # Transform 5: Tier 0/1/2 prompt sections
+  budget-enforcer.ts          # Transform 6: Progressive shedding + pressure monitor
+  self-correction.ts          # Corrector orchestrator
+  tool-call-validator.ts      # Corrector 1: Tool miss → retry
+  context-loss-detector.ts    # Corrector 2: Response pattern → window expansion
+  loop-detector.ts            # Corrector 3: Action hash → break loop
+  turn-extractor.ts           # Corrector 4: Regex extraction for working memory
+  proactive-retrieval.ts      # Phase 3: Embedding-based memory injection
+  context-manager.ts          # Phase 3: Coordinates all transforms + correctors
   types.ts                    # Shared type definitions
 ```
 
 Changes to existing files:
-- `src/agents/system-prompt.ts` — add tier support, move Tier 2 sections out
-- `src/agents/pi-embedded-runner/history.ts` — add `buildWeightedHistory()`
-- `src/agents/pi-embedded-runner/compact.ts` — integrate new components at existing hook points
+- `src/agents/system-prompt.ts` — PromptTier parameter, Tier 2 extraction
+- `src/agents/pi-embedded-runner/history.ts` — `buildWeightedHistory()` alongside existing
+- `src/agents/pi-embedded-runner/compact.ts` — Pipeline integration at existing hook points
 
 ---
 
-## Part VIII: Honest Projections
+## Part X: Honest Projections
 
 ### What We Can Estimate
 
-| Optimization | Mechanism | Savings Estimate | Confidence |
-|-------------|-----------|-----------------|------------|
-| System prompt tiering | Remove Tier 2 sections (~15 sections → ~8 sections) | 1,000-3,000 tok/turn | High — this is just removing text |
-| Tool schema filtering | 25 tools → 5-8 relevant tools | 900-1,600 tok/turn | Medium — depends on schema sizes, needs measurement |
-| Sliding window history | Last 3 full + 7 compressed + 0 old vs. all turns | 3,000-8,000 tok/turn (sessions with 10+ turns) | Medium — varies by session length |
-| Working memory injection | Small structured block vs. re-reading full history | 500-1,000 tok/turn (indirect, reduces tool calls) | Low — hard to measure precisely |
+| Optimization | Mechanism | Savings | Confidence | Source |
+|---|---|---|---|---|
+| Stale tool result cleaning | Truncate old tool outputs | 10,000-50,000 tok/session | **High** | Claude Code measured 84% reduction |
+| System prompt tiering | Remove ~7 sections | 1,000-3,000 tok/turn | **High** | Counting text that's being removed |
+| Tool schema filtering | 25→5-8 tools | 900-1,600 tok/turn | **Medium** | Depends on schema sizes |
+| Weighted history window | 3 full + 7 compressed vs all turns | 3,000-8,000 tok/turn (10+ turns) | **Medium** | Varies by session length |
+| Working memory | ~300 token block enables aggressive windowing | Indirect — enables above | **Medium** | Depends on extraction accuracy |
+| Self-correction (tool miss) | Retry with correct tools | Prevents failures, not token savings | **High** | LangGraph-proven pattern |
+| Self-correction (context loss) | Auto-expand window | Prevents quality degradation | **Medium** | Novel; needs measurement |
+| Self-correction (loop detection) | Break repetitive cycles | Prevents wasted turns/tokens | **High** | Voyager-proven pattern |
 
-### What We Don't Know Yet
+### What We Don't Know
 
-- **Actual token counts per component**: We need instrumentation before we can set targets. The estimates above are based on code inspection and character-to-token ratios, not measured data.
-- **Impact on task completion**: Removing context could degrade quality. We need A/B testing or at minimum regression testing against a set of representative tasks.
-- **Compaction interaction**: The sliding window should reduce compaction frequency, but by how much depends on session length distributions we haven't measured.
-- **Tool selector accuracy**: The keyword-based approach will have false negatives. We won't know the miss rate until we measure it in production.
+- Actual token counts per component (needs Phase 0 instrumentation)
+- Tool selector miss rate (needs production measurement)
+- Context loss detector false positive rate (needs tuning)
+- Loop detector sensitivity (hash collisions, false positives)
+- Impact on task completion quality (needs A/B testing)
 
-### Targets (to be revised after baseline measurement)
+### Targets (to be revised after Phase 0 measurement)
 
-- Phase 1: 30-40% reduction in system prompt + tool schema tokens
-- Phase 2: 50-60% reduction in total context tokens for sessions > 10 turns
-- Phase 3: 60-70% reduction in total context tokens with improved relevance
-- All phases: zero regression in task completion rate on representative test sessions
+- Phase 1: 40-55% reduction in total context tokens
+- Phase 2: 60-70% reduction with self-correction preventing quality regression
+- Phase 3: 65-75% reduction with adaptive budget allocation
+- All phases: zero regression in task completion rate
+
+### What Success Looks Like
+
+1. A 50-turn coding session uses ~60% fewer tokens than today
+2. Compaction triggers <5% as often (becomes a rare emergency)
+3. The agent never says "I don't have information about X" for something discussed 5 turns ago
+4. The agent never loops on the same failed tool call 3+ times
+5. A user can disable the entire system with one config flag and get exactly today's behavior
