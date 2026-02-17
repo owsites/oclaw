@@ -1,788 +1,472 @@
-# OpenClaw Neural Redesign Plan
+# OpenClaw Context Optimization Plan
 
-## Consciousness-Inspired Context Architecture for Token-Optimized AI Agent Systems
+## Pragmatic Token Reduction for the OpenClaw Agent System
 
 ---
 
 ## Part I: Current Architecture Diagnosis
 
-### 1. Codebase Anatomy
+### 1. How Context Is Built Today
 
-OpenClaw is a multi-channel AI gateway (~50+ source directories, ~39 extensions) built in TypeScript (ESM). Its core loop:
+OpenClaw is a multi-channel AI gateway built in TypeScript (ESM). On every turn, the system:
 
-1. **Inbound message** arrives via channel (Telegram, Discord, Signal, WhatsApp, Web, etc.)
-2. **Auto-reply dispatch** (`src/auto-reply/`) routes to the embedded Pi agent runner
-3. **System prompt construction** (`src/agents/system-prompt.ts`) builds a ~600-line monolithic prompt
-4. **Context assembly**: bootstrap files + session history + memory search results + tool schemas
-5. **LLM call** via `@mariozechner/pi-coding-agent` SDK with full context payload
-6. **Compaction** (`src/agents/compaction.ts`) when context overflows: chunk-then-summarize
-7. **Response** streamed back through channel
+1. **Receives** a message via channel (Telegram, Discord, Signal, WhatsApp, Web, etc.)
+2. **Routes** through `src/auto-reply/` to the embedded Pi agent runner
+3. **Builds system prompt** via `buildAgentSystemPrompt()` in `src/agents/system-prompt.ts` (lines 168-638)
+4. **Loads bootstrap files** via `resolveBootstrapContextForRun()` — SOUL.md, MEMORY.md, workspace notes — injected verbatim into "Project Context"
+5. **Assembles full session history** from the JSONL transcript as a flat message array
+6. **Attaches all tool schemas** — full JSON schemas for 25+ tools regardless of relevance
+7. **Calls LLM** through `@mariozechner/pi-coding-agent` SDK with the entire payload
+8. **Compacts reactively** only when context overflows, via `compaction.ts` chunk-then-summarize
 
-### 2. Critical Token Consumption Hotspots
+### 2. Measured Token Hotspots
 
-| Hotspot | Location | Token Cost | Problem |
-|---------|----------|------------|---------|
-| **System prompt** | `system-prompt.ts:168-638` | ~2,000-4,000 tokens per call | Monolithic, rebuilt identically every turn. Includes tool docs, CLI reference, safety rules, messaging rules, reaction guidance, voice hints, docs paths - ALL sent every single API call |
-| **Full session history** | `pi-embedded-runner/run.ts` | Grows unbounded until compaction | Linear transcript, no importance weighting. A 50-turn conversation sends all 50 turns even if only the last 3 are relevant |
-| **Tool schemas** | `pi-tools.ts` (17K+ file) | ~500-1,500 tokens | Full JSON schemas for ~25+ tools sent every call, even when most are irrelevant to the current task |
-| **Bootstrap context files** | `bootstrap-files.ts` | Variable, potentially large | AGENTS.md, SOUL.md, workspace files injected verbatim. No compression, no relevance filtering |
-| **Compaction summarization** | `compaction.ts:142-174` | Extra LLM call | Summarizes chunks sequentially, then merges summaries - each step is another full API call with its own context overhead |
-| **Memory search results** | `memory-search.ts` | ~200-600 tokens per search | Returns raw text snippets without semantic compression |
+These are the actual locations where tokens are consumed, based on code inspection:
 
-### 3. Context System Weaknesses
+| Hotspot | Source File | Estimated Cost | Evidence |
+|---------|------------|----------------|----------|
+| **System prompt** | `system-prompt.ts:400-638` | 2,000-4,000 tok/turn | 638-line function builds ~20 sections; includes CLI reference, messaging rules, reaction guidance, voice hints, heartbeat config, silent reply rules, sandbox info, model aliases, docs paths — all sent every call |
+| **Bootstrap context files** | `bootstrap.ts:187-239` | Variable, up to 150K chars (DEFAULT_BOOTSTRAP_TOTAL_MAX_CHARS) | `buildBootstrapContextFiles()` injects files with per-file 20K char limit and 150K total limit. SOUL.md, MEMORY.md, workspace notes go in verbatim |
+| **Session history** | `compact.ts:574-587` | Grows unbounded until compaction | `limitHistoryTurns()` applies hard cutoff but no importance weighting. Full message array passed to `session.agent.replaceMessages()` |
+| **Tool schemas** | `pi-tools.ts` + `pi-tool-definition-adapter.ts` | 500-1,500 tok/turn | `createOpenClawCodingTools()` creates all tools; full JSON schemas for read, write, edit, apply_patch, grep, find, ls, exec, process, web_search, web_fetch, browser, canvas, nodes, cron, message, gateway, sessions_*, subagents, session_status, image |
+| **Compaction cost** | `compaction.ts:142-309` | 1-3 LLM calls when triggered | `summarizeInStages()` splits by token share, summarizes each chunk, then merges summaries — each step is a separate LLM call |
+| **Memory search results** | memory tools | 200-600 tok/search | Raw text snippets returned without compression |
 
-**3a. No Temporal Decay or Importance Weighting**
-Every message in the session history has equal weight. A greeting from 40 turns ago consumes the same tokens as a critical decision made 2 turns ago. The `limitHistoryTurns` function (`pi-embedded-runner/history.ts`) only does hard cutoffs - no gradual decay.
+### 3. Specific Weaknesses in Current Code
 
-**3b. Compaction is Lossy and Reactive**
-Compaction (`compaction.ts`) only triggers on overflow. The `summarizeInStages` approach:
-- Splits messages by token share (not semantic boundaries)
-- Summarizes each chunk independently (losing cross-chunk references)
-- Merges summaries (further lossy compression)
-- Result: critical decisions, code snippets, and user preferences get flattened into generic summaries
+**3a. History is flat and unweighted** (`history.ts:15-36`)
+`limitHistoryTurns()` counts user messages backwards and slices. A greeting from 40 turns ago costs the same tokens as a critical decision from 2 turns ago. There's no recency weighting, no importance scoring, no selective retention.
 
-**3c. No Working Memory / Long-Term Memory Distinction**
-The current architecture treats everything as a flat transcript. There is no:
-- Working memory (active task context)
-- Episodic memory (past interactions)
-- Semantic memory (learned facts/preferences)
-- Procedural memory (how to do things)
+**3b. Compaction is reactive and lossy** (`compaction.ts:248-309`)
+`summarizeInStages()` only runs after context overflow. It splits messages by token share (not semantic boundaries), summarizes each chunk independently (losing cross-chunk references), then merges summaries (further lossy compression). Decisions, code snippets, and user preferences get flattened into generic prose.
 
-**3d. System Prompt Redundancy**
-The system prompt is rebuilt from scratch every turn. Sections like Safety rules, CLI reference, tool descriptions, and messaging instructions are identical across turns but consume thousands of tokens repeatedly.
+**3c. System prompt is monolithic** (`system-prompt.ts:400-638`)
+Every turn rebuilds the same prompt. Sections like Safety (lines 371-377), CLI Quick Reference (lines 438-445), Messaging (lines 98-137), Silent Replies (lines 601-615), and Heartbeats (lines 619-628) are identical across turns but consume thousands of tokens repeatedly. The only variation is `promptMode` ("full" vs "minimal" vs "none"), which is a coarse toggle.
 
-**3e. No Predictive Context Loading**
-The system loads ALL available context regardless of what the user is asking about. There is no prediction of what context will be needed.
+**3d. All tool schemas sent unconditionally** (`system-prompt.ts:224-317`)
+The `coreToolSummaries` object maps 23 tool names to descriptions. All enabled tools are listed in the system prompt every turn. The full JSON schemas (from `pi-tool-definition-adapter.ts`) are also sent to the LLM API. When a user asks "what time is it?", the LLM still receives schemas for `apply_patch`, `browser`, `canvas`, `nodes`, `cron`, `gateway`, etc.
+
+**3e. Bootstrap files have size limits but no relevance filtering** (`bootstrap.ts:187-239`)
+`buildBootstrapContextFiles()` respects `maxChars` (20K default) and `totalMaxChars` (150K default), and truncates with head+tail when files are too large. But it always injects all bootstrap files regardless of whether the current message relates to them.
 
 ---
 
-## Part II: Neuroscience Foundations
+## Part II: What We're Actually Building
 
-The redesign draws from four peer-reviewed theories of consciousness and cognition, adapted for practical LLM agent architecture:
-
-### Theory 1: Global Workspace Theory (GWT) - Bernard Baars (1988)
-
-**Core Insight**: Consciousness operates as a "global workspace" - a shared cognitive blackboard where specialized unconscious processors compete for access. Only the winning coalition of information becomes "conscious" (broadcast to all processors).
-
-**Application to OpenClaw**: Instead of dumping everything into the context window, create a competitive attention mechanism where context elements compete for limited "workspace" slots based on relevance to the current query.
-
-**Key Paper**: Baars, B.J. (1988). *A Cognitive Theory of Consciousness*. Cambridge University Press.
-**Supporting**: Dehaene, S., & Naccache, L. (2001). "Towards a cognitive neuroscience of consciousness." *Cognition*, 79(1-2), 1-37.
-
-### Theory 2: Integrated Information Theory (IIT) - Giulio Tononi (2004)
-
-**Core Insight**: Consciousness correlates with "integrated information" (Phi, $\Phi$) - the degree to which a system is both differentiated (has many distinct states) and integrated (its parts work as a unified whole). High Phi = high consciousness.
-
-**Application to OpenClaw**: Measure the "information integration" of context elements. Highly integrated information (facts that connect to many other facts) should be preserved preferentially. Isolated facts can be compressed or evicted. This gives us a principled metric for what to keep vs. discard.
-
-**Key Paper**: Tononi, G. (2004). "An information integration theory of consciousness." *BMC Neuroscience*, 5(1), 42.
-**Supporting**: Tononi, G., & Koch, C. (2015). "Consciousness: here, there and everywhere?" *Philosophical Transactions of the Royal Society B*, 370(1668).
-
-### Theory 3: Attention Schema Theory (AST) - Michael Graziano (2013)
-
-**Core Insight**: The brain constructs an internal model of its own attention process (an "attention schema"). This meta-model allows the brain to predict and control what it attends to, creating the subjective experience of awareness.
-
-**Application to OpenClaw**: Build an explicit attention schema that tracks what the agent is currently "attending to," what it recently attended to, and what it expects to need next. This becomes the agent's self-model of its own context state.
-
-**Key Paper**: Graziano, M.S.A. (2013). *Consciousness and the Social Brain*. Oxford University Press.
-**Supporting**: Graziano, M.S.A., & Webb, T.W. (2015). "The attention schema theory: a mechanistic account of subjective awareness." *Frontiers in Psychology*, 6, 500.
-
-### Theory 4: Predictive Processing / Free Energy Principle - Karl Friston (2010)
-
-**Core Insight**: The brain is fundamentally a prediction machine that minimizes "surprise" (free energy). It maintains generative models of the world and only processes information that violates its predictions (prediction errors).
-
-**Application to OpenClaw**: Instead of loading all context, maintain a predictive model of what the user is likely to ask about. Only load context that the model cannot predict from its current state. This dramatically reduces token usage by not re-transmitting predictable information.
-
-**Key Paper**: Friston, K. (2010). "The free-energy principle: a unified brain theory?" *Nature Reviews Neuroscience*, 11(2), 127-138.
-
-### Precedent Systems
-
-| System | Approach | Relevance |
-|--------|----------|-----------|
-| **MemGPT/Letta** | Virtual context management with explicit memory tiers | Closest prior art - main memory + archival memory with page-in/page-out |
-| **SOAR** | Working memory + long-term memory (procedural, semantic, episodic) | Cognitive architecture with principled memory hierarchy |
-| **ACT-R** | Activation-based memory retrieval with decay | Mathematical model for memory accessibility over time |
-| **Conscious Turing Machine (Blum & Blum, 2021)** | Formal model of consciousness with competing processors | Theoretical framework for competitive context selection |
-
----
-
-## Part III: The Neural Context Architecture (NCA)
+No neuroscience metaphors. Each component is defined by its inputs, transformations, outputs, and decision criteria.
 
 ### Architecture Overview
 
 ```
-                    +-----------------------+
-                    |   GLOBAL WORKSPACE    |
-                    |   (Active Context)    |
-                    |   ~4K-8K tokens max   |
-                    +-----------+-----------+
-                                |
-              +-----------------+-----------------+
-              |                 |                 |
-    +---------v------+  +------v--------+  +-----v----------+
-    | SENSORY BUFFER |  | WORKING MEMORY|  | ATTENTION       |
-    | (Raw Input)    |  | (Task State)  |  | SCHEMA          |
-    | ~1K tokens     |  | ~2K tokens    |  | (Self-Model)    |
-    +-------+--------+  +------+--------+  | ~500 tokens     |
-            |                  |           +--------+---------+
-            |                  |                    |
-    +-------v------------------v--------------------v---------+
-    |              MEMORY CONSOLIDATION ENGINE                 |
-    |          (Background Process - Async)                    |
-    +----+------------+---------------+-----------+-----------+
-         |            |               |           |
-   +-----v----+ +----v-----+ +------v-----+ +---v-----------+
-   | EPISODIC | | SEMANTIC | | PROCEDURAL | | PREDICTIVE    |
-   | MEMORY   | | MEMORY   | | MEMORY     | | MODEL         |
-   | (Events) | | (Facts)  | | (How-to)   | | (Expectations)|
-   | SQLite   | | SQLite   | | Compressed | | ~256 tokens   |
-   +----------+ +----------+ +------------+ +---------------+
+                    +---------------------------+
+                    |    CONTEXT ASSEMBLER       |
+                    |    (Replaces monolithic    |
+                    |     prompt builder)        |
+                    +---------------------------+
+                       /     |      \
+                      /      |       \
+              +------+  +----+----+  +----------+
+              |Prompt |  |History  |  |Tool      |
+              |Tiers  |  |Manager  |  |Selector  |
+              +------+  +---------+  +----------+
+                           |
+              +---------------------------+
+              |   TWO-TIER MEMORY         |
+              |                           |
+              | [Working Memory]          |
+              |   In-session state,       |
+              |   recent decisions,       |
+              |   active constraints      |
+              |                           |
+              | [Reference Memory]        |
+              |   Compressed project      |
+              |   knowledge, user prefs,  |
+              |   tool patterns           |
+              +---------------------------+
+                           |
+              +---------------------------+
+              |   CONSOLIDATION ENGINE    |
+              |                           |
+              | - Heuristic rules (free)  |
+              | - Embedding retrieval     |
+              |   (moderate cost)         |
+              | - Cheap model summary     |
+              |   (optional, explicit $)  |
+              +---------------------------+
 ```
 
-### Layer 1: Sensory Buffer (Replaces raw message ingestion)
+### Component 1: Tiered System Prompt
 
-**Current**: Raw user message goes directly into session history.
-**Redesign**: A lightweight preprocessing layer that:
+**Input**: `PromptMode`, channel config, sandbox config, tool list, context files
+**Transformation**: Classify each section into tiers by how often it's needed
+**Output**: A smaller system prompt where rarely-needed sections are omitted by default
+**Decision criteria**: Section is Tier 0 if needed every turn; Tier 1 if needed based on channel/mode; Tier 2 if only needed when the agent encounters specific situations (and can retrieve it then)
 
-- Extracts intent signals from the incoming message
-- Tags message with semantic category (question, instruction, follow-up, correction, new-topic)
-- Computes relevance scores against the current attention schema
-- Triggers predictive context loading based on intent
+**Tier 0 — Always present (~300 tokens):**
+- Identity line
+- Safety rules (lines 371-377 compressed to essentials)
+- Workspace directory + guidance
+- Runtime line (model, channel, thinking level)
 
-**Implementation**: New file `src/agents/neural/sensory-buffer.ts`
+**Tier 1 — Conditional, included when applicable (~200-800 tokens):**
+- Tool summaries for **enabled** tools (the one-line descriptions at lines 224-252, not full schemas)
+- Tool call style guidance (lines 431-435)
+- Messaging rules (only if `message` tool is available)
+- Sandbox info (only if sandbox is enabled)
+- Reaction guidance (only if reactions are configured)
+- Reasoning format (only if reasoning tags are needed)
+- Skills section (only if skills are loaded)
 
+**Tier 2 — Omitted from prompt, available via tools/memory:**
+- CLI Quick Reference (lines 438-445) — the agent can `read` docs if needed
+- OpenClaw Self-Update instructions (lines 450-458)
+- Model Aliases (lines 462-471)
+- Voice/TTS hints (only ~10% of sessions use TTS)
+- Heartbeat protocol (only relevant for heartbeat polls)
+- Silent reply rules (can be taught once and remembered)
+- Docs section with URLs (lines 150-165)
+
+**What this changes in code**: Refactor `buildAgentSystemPrompt()` to accept a `tierLevel` parameter. Default to Tier 0+1. Tier 2 content moves to a retrievable reference that the agent can access via `read` or a new lightweight tool.
+
+**Estimated savings**: Current full prompt is ~2,000-4,000 tokens. Tier 0+1 is ~500-1,100 tokens. Savings: **~1,000-3,000 tokens per turn**. This is conservative — it depends on how many Tier 1 sections apply for a given session.
+
+### Component 2: Tool Group Selector
+
+**Input**: User message text, session history (last 2 turns), list of available tools
+**Transformation**: Classify the user's intent into a tool group; filter tool schemas to that group + a core set
+**Output**: Reduced tool schema list sent to LLM API
+**Decision criteria**: Deterministic keyword/pattern matching, not LLM inference
+
+**Tool groups** (defined as a static map):
+
+| Group | Trigger Keywords/Patterns | Tools |
+|-------|--------------------------|-------|
+| **Core** (always included) | — | read, write, edit, exec, ls |
+| **File Operations** | "file", "create", "delete", "move", "rename", "patch", "diff" | apply_patch, grep, find |
+| **Research** | "search", "find", "look up", "what is", "how to", URL patterns | web_search, web_fetch, grep, find |
+| **Git/Code** | "commit", "push", "pull", "branch", "git", "deploy" | exec, grep, find |
+| **Messaging** | "send", "message", "tell", "notify", reply context from group chat | message, sessions_send, sessions_list |
+| **Orchestration** | "spawn", "agent", "sub-agent", "background", "cron", "schedule", "remind" | sessions_spawn, subagents, agents_list, sessions_list, sessions_history, cron |
+| **Browser** | "browse", "open", "screenshot", "page", URL patterns | browser, web_fetch |
+| **Media** | "image", "photo", "picture", "canvas", "draw" | image, canvas |
+| **System** | "status", "update", "config", "restart", "gateway" | gateway, session_status |
+| **Nodes** | "node", "camera", "screen", "device" | nodes |
+
+**Algorithm**:
+```
+1. Scan user message for trigger keywords (case-insensitive, word-boundary matching)
+2. Collect all matching groups
+3. If no groups match, include Core + File Operations + Research (safe default)
+4. Union all tools from matched groups + Core
+5. If more than 12 tools selected, keep all (diminishing returns on further filtering)
+6. Filter available tool schemas to only selected tools
+```
+
+**Fallback**: If the LLM requests a tool that wasn't included in the schema set, this is a signal the selector was wrong. Log the miss, include the missing tool schema in a retry, and add the pattern to the group mapping. Over time, the selector improves.
+
+**What this changes in code**: New function `selectToolsForTurn()` called in `compact.ts`/`run.ts` before `createOpenClawCodingTools()` or at the `splitSdkTools()` stage. The function filters the tools array before it's passed to the agent session.
+
+**Estimated savings**: Currently 25+ full tool schemas. Typical turn needs 5-8. JSON schemas average ~60-80 tokens each. Removing 15-20 irrelevant schemas saves **~900-1,600 tokens per turn**.
+
+### Component 3: Sliding Window with Recency Weighting
+
+**Input**: Full session history (message array from SessionManager)
+**Transformation**: Replace the flat `limitHistoryTurns()` with a weighted window
+**Output**: A shorter message array where old turns are summarized and recent turns are preserved verbatim
+**Decision criteria**: Recency-based tiers, not a flat cutoff
+
+**Algorithm**:
+```
+Given N messages in session history and a token budget B:
+
+1. RECENT window (last 3 user turns + responses): Include verbatim. These are the
+   active context the LLM needs for coherence.
+
+2. MIDDLE window (turns 4-10 back): Include only the user message + first sentence
+   of assistant response + any tool calls that produced results. Strip verbose tool
+   outputs (keep only tool name + truncated result summary).
+
+3. OLD window (turns 11+): Drop entirely from context. They're already in the
+   session transcript on disk and can be retrieved via memory_search if needed.
+
+4. If a compaction summary exists from a previous compaction, prepend it as the
+   first message (preserving existing behavior).
+
+5. Token budget check: After applying the window, estimate tokens. If still over
+   budget, progressively shrink MIDDLE window (remove oldest MIDDLE turns first).
+```
+
+**What this changes in code**: Replace `limitHistoryTurns()` in `history.ts` with `buildWeightedHistory()`. Called at the same point in `compact.ts:574-587` where `limitHistoryTurns()` is currently called. The existing compaction system remains as the emergency fallback if the weighted window still overflows.
+
+**Estimated savings**: A 20-turn session currently sends all 20 turns (~8,000-15,000 tokens of history). With the sliding window, we send ~3 full turns + ~4 compressed turns + 0 old turns. Estimated: **~3,000-8,000 tokens saved per turn in mid-to-long sessions**.
+
+### Component 4: Two-Tier Memory
+
+Instead of four memory tiers (episodic, semantic, procedural, predictive), start with two:
+
+**Working Memory** — Session-scoped, in-memory state:
 ```typescript
-interface SensoryInput {
-  raw: string;
-  intent: IntentSignal;          // question | instruction | followup | correction | newtopic
-  semanticTags: string[];         // extracted topics/entities
-  relevanceToCurrentTask: number; // 0-1 score against attention schema
-  predictedContextNeeds: string[]; // what memory/context to preload
-  temporalWeight: number;         // urgency/recency factor
+interface WorkingMemory {
+  currentTask: string | null;           // extracted from last user message
+  recentDecisions: string[];            // last 5 decisions (from assistant responses)
+  activeConstraints: string[];          // extracted "don't", "must", "always" patterns
+  toolsUsedThisSession: Set<string>;    // for tool group prediction
+  turnCount: number;
 }
 ```
+This is cheap — it's a plain object updated after each turn via pattern matching. No LLM cost. Injected as a structured block at the top of context, replacing the need to re-read entire conversation history.
 
-**Token savings**: By classifying intent upfront (~50 tokens for the classification), we avoid loading irrelevant context that costs 500-2000 tokens.
+**Reference Memory** — Persistent, SQLite-backed:
+This is the existing `src/memory/` infrastructure (vector embeddings + hybrid search). No new tables needed. The change is in *when* and *how* it's queried:
+- Currently: the agent decides when to call `memory_search` (reactive)
+- New: the system proactively retrieves the top-3 most relevant memory chunks based on the user's message embedding and injects them into context (if they score above a relevance threshold)
+- The agent can still call `memory_search` explicitly for deeper retrieval
 
-### Layer 2: Global Workspace (Replaces flat context window)
+**What this changes in code**:
+- New `src/agents/context/working-memory.ts` — maintains session state, updated after each turn
+- Modify the context assembly in `compact.ts` / `run.ts` to inject working memory as a structured block
+- Add proactive memory retrieval in the context assembly path (embed user message, query existing memory store, inject top results if above threshold)
 
-**Current**: Everything gets stuffed into one context window until overflow.
-**Redesign**: A curated workspace of ~4K-8K tokens that contains ONLY what's relevant right now.
+**Estimated savings**: Working memory replaces the need to include old turns for context continuity. Combined with Component 3 (sliding window), the redundancy between "full history for context" and "working memory state" is eliminated. Additional savings from proactive retrieval: **~500-1,000 tokens** (the agent makes fewer explicit `memory_search` calls, reducing tool call overhead).
 
-The Global Workspace consists of:
+### Component 5: Consolidation Between Turns
 
-| Slot | Budget | Contents |
-|------|--------|----------|
-| **System Identity** | ~200 tokens | Compressed identity ("You are OpenClaw assistant.") + essential safety rules only |
-| **Active Tool Set** | ~300 tokens | Only schemas for tools predicted to be needed (not all 25+) |
-| **Working Memory** | ~2,000 tokens | Current task state, recent decisions, active constraints |
-| **Episodic Recall** | ~1,000 tokens | Relevant past interactions, retrieved by semantic search |
-| **Semantic Facts** | ~500 tokens | User preferences, project facts, learned constraints |
-| **Predictive Context** | ~256 tokens | The agent's expectations of what comes next |
-| **Attention Schema** | ~500 tokens | Self-model: what am I attending to, what's my confidence level |
+**What it does**: After each turn completes, extract structured data from the turn and update working memory. This is local computation — no LLM calls.
 
-**Total**: ~4,756 tokens baseline vs. current 8,000-30,000+ tokens
+**Mechanism** (explicitly addressing the "no free lunch" concern):
 
-**Implementation**: New file `src/agents/neural/global-workspace.ts`
+**Tier 1 — Heuristic rules (free, always on):**
+- Keep last N tool results, drop duplicates (e.g., multiple `read` calls to the same file → keep latest)
+- Compress repeated patterns (e.g., "user asked about file X" 3 times → single entry)
+- Extract decisions from assistant response via regex: patterns like "I'll", "Let's", "decided to", "going with"
+- Track tools used per session (for tool group prediction)
+- Truncate tool results to first 200 chars (the full result is in the transcript on disk)
 
-```typescript
-interface GlobalWorkspace {
-  identity: CompressedIdentity;        // ~200 tokens
-  activeTools: ToolSchema[];           // ~300 tokens (dynamic subset)
-  workingMemory: WorkingMemoryState;   // ~2000 tokens
-  episodicRecall: EpisodicFragment[];  // ~1000 tokens
-  semanticFacts: SemanticFact[];       // ~500 tokens
-  predictiveModel: PredictiveState;    // ~256 tokens
-  attentionSchema: AttentionSchema;    // ~500 tokens
+**Tier 2 — Embedding-based retrieval (moderate cost, opt-in):**
+- When proactive memory retrieval is enabled, compute embedding for each user message
+- Use existing `src/memory/embeddings.ts` infrastructure — this is already built
+- Cost: one embedding API call per turn (~$0.0001 with ada-002 or free with local model)
+- Retrieve top-3 chunks from reference memory, inject if similarity > threshold
 
-  totalBudget: number;                 // configurable, default 6000
-  allocate(): TokenAllocation;         // dynamic budget allocation
-  compete(candidates: ContextCandidate[]): ContextCandidate[]; // GWT competition
-}
-```
+**Tier 3 — Cheap model summarization (explicit cost, opt-in):**
+- Every N turns (configurable, default 20), run a cheap model (Haiku or local) to summarize the accumulated working memory into a compressed block
+- This replaces the current compaction's emergency summarization with a planned, periodic one
+- Cost: ~$0.001-0.005 per summarization call
+- Stored as a "session summary" that prepends to context on future turns
 
-**The Competition Mechanism (GWT-inspired)**:
-
-When new information arrives, it enters a competition for workspace slots:
-
-1. Candidates are scored on: relevance to query, recency, integration (IIT-inspired), user salience
-2. Current workspace contents defend their slots with activation levels that decay over time
-3. Winners get broadcast (included in context), losers get demoted to long-term memory
-4. The competition runs in <10ms using precomputed embeddings and cached scores
-
-### Layer 3: Hierarchical Memory System (Replaces flat session history + basic memory)
-
-**Current memory**:
-- Session history: linear JSONL transcript (unbounded growth)
-- Memory search: SQLite + embedding vectors, basic hybrid search
-
-**Redesign**: Four-tier memory inspired by cognitive architecture research:
-
-#### 3a. Episodic Memory (Events & Interactions)
-
-Stores discrete interaction episodes with metadata:
-
-```typescript
-interface Episode {
-  id: string;
-  timestamp: number;
-  summary: string;           // compressed ~50 tokens
-  participants: string[];
-  decisions: Decision[];     // extracted decisions with rationale
-  topics: string[];
-  emotionalValence: number;  // -1 to 1 (frustration to satisfaction)
-  importanceScore: number;   // IIT-inspired integration metric
-  accessCount: number;       // ACT-R activation tracking
-  lastAccessed: number;
-  decayRate: number;         // personalized per-episode
-  embedding: number[];       // for semantic retrieval
-}
-```
-
-**Key innovation**: Episodes are not raw transcripts. They are **compressed semantic summaries** with extracted structured metadata. A 50-turn conversation becomes 5-10 episodes of ~50 tokens each (250-500 tokens total vs. 5,000-15,000 tokens for raw history).
-
-#### 3b. Semantic Memory (Facts & Knowledge)
-
-Stores learned facts as a knowledge graph:
-
-```typescript
-interface SemanticFact {
-  id: string;
-  subject: string;
-  predicate: string;
-  object: string;
-  confidence: number;        // 0-1
-  source: string;            // which episode established this
-  contradictions: string[];  // facts that contradict this one
-  integrationScore: number;  // how many other facts connect to this
-  lastValidated: number;
-}
-```
-
-**Examples**:
-- `{subject: "user", predicate: "prefers", object: "TypeScript over JavaScript", confidence: 0.9}`
-- `{subject: "project", predicate: "uses", object: "Vitest for testing", confidence: 1.0}`
-- `{subject: "user", predicate: "timezone", object: "America/New_York", confidence: 1.0}`
-
-**Token savings**: Instead of re-reading AGENTS.md (20K+ tokens) every time, extract the relevant facts into semantic memory (~100-200 tokens for the subset needed).
-
-#### 3c. Procedural Memory (How-To Knowledge)
-
-Stores compressed procedures for recurring tasks:
-
-```typescript
-interface Procedure {
-  id: string;
-  trigger: string;           // "when user asks to deploy"
-  steps: string[];           // compressed action sequence
-  tools: string[];           // which tools this procedure uses
-  constraints: string[];     // known pitfalls/requirements
-  successRate: number;       // historical success tracking
-  lastUsed: number;
-  embedding: number[];
-}
-```
-
-**Current waste**: Every time the user asks "deploy to fly.io", the agent re-reads docs, re-discovers the workflow, and re-assembles the steps. Procedural memory caches this as ~100 tokens instead of 2,000+ tokens of re-discovery.
-
-#### 3d. Predictive Model (Expectation State)
-
-Maintains the agent's expectations about what comes next (Friston's Free Energy):
-
-```typescript
-interface PredictiveModel {
-  currentTask: string;                    // what we think the user is doing
-  expectedNextAction: string;             // what we predict comes next
-  confidenceLevel: number;                // how sure we are
-  surpriseThreshold: number;              // when to load more context
-  contextPreloads: Map<string, number>;   // topic -> probability of needing it
-}
-```
-
-**Token savings**: If the predictive model says "user is writing tests" with 0.9 confidence, we preload test-related context and skip deployment/release context entirely. Estimated savings: 1,000-3,000 tokens per turn.
-
-### Layer 4: Attention Schema (Self-Model)
-
-The attention schema is the agent's model of its own cognitive state:
-
-```typescript
-interface AttentionSchema {
-  currentFocus: string;                // what am I attending to right now
-  focusHistory: FocusEvent[];          // recent attention shifts
-  confidenceInUnderstanding: number;   // 0-1: how well do I understand the current task
-  uncertainAreas: string[];            // what am I unsure about
-  pendingQuestions: string[];          // what should I ask the user
-  cognitiveLoad: number;              // 0-1: how much of my capacity is being used
-  contextSaturation: number;          // 0-1: how full is the workspace
-}
-```
-
-**Why this matters**: The attention schema enables the agent to:
-1. **Self-report its cognitive state**: "I'm uncertain about X" vs. fabricating an answer
-2. **Prioritize attention**: When cognitive load is high, focus on the most important element
-3. **Request context**: "I notice I'm missing information about Y"
-4. **Prevent hallucination**: When confidence is low, explicitly say so
-
-### Layer 5: Memory Consolidation Engine (Background Process)
-
-Inspired by how the hippocampus consolidates short-term memories into long-term storage during sleep:
-
-```typescript
-class MemoryConsolidationEngine {
-  // Runs asynchronously between turns (not during LLM calls)
-  async consolidate(session: SessionState): Promise<void> {
-    // 1. Extract episodes from recent working memory
-    const episodes = this.extractEpisodes(session.workingMemory);
-
-    // 2. Extract semantic facts from episodes
-    const facts = this.extractFacts(episodes);
-
-    // 3. Extract procedures from tool-use patterns
-    const procedures = this.extractProcedures(session.toolHistory);
-
-    // 4. Compute integration scores (IIT-inspired)
-    const scored = this.computeIntegration(facts, this.existingFacts);
-
-    // 5. Prune low-integration, low-access facts (ACT-R decay)
-    const pruned = this.applyDecay(this.existingFacts);
-
-    // 6. Update predictive model
-    this.updatePredictiveModel(episodes, facts);
-
-    // 7. Persist to SQLite
-    await this.persist(episodes, facts, procedures);
-  }
-}
-```
-
-**This runs BETWEEN turns**, not during them. No additional token cost for the consolidation itself - it's pure local computation using the existing SQLite infrastructure.
+**What this changes in code**: New post-turn hook in `pi-embedded-subscribe.ts` that calls `consolidateAfterTurn()`. The function updates the WorkingMemory object and optionally triggers embedding computation and periodic summarization.
 
 ---
 
-## Part IV: System Prompt Redesign
+## Part III: Failure Modes and Degradation Strategy
 
-### Current Problem
+Each component has an explicit fallback for when it makes a wrong decision:
 
-The system prompt (`system-prompt.ts:168-638`) is a monolithic ~2,000-4,000 token block rebuilt identically every turn. It includes sections that are:
-- **Always needed**: Safety rules, identity (~200 tokens)
-- **Rarely needed**: CLI reference, model aliases, reaction guidance, voice hints
-- **Conditionally needed**: Tool schemas (only relevant ones), sandbox info, messaging rules
+### Tool Selector Misses
 
-### Redesign: Tiered System Prompt
+**Failure**: LLM tries to call a tool that wasn't included in the filtered schema set.
+**Detection**: The SDK will report a tool call for an unknown tool name.
+**Recovery**:
+1. Log the miss with the user message that caused it
+2. Re-run the turn with the missing tool added to the schema set
+3. Add the trigger pattern to the tool group mapping for future turns
+**Degradation**: First miss costs one retry. Subsequent misses for the same pattern don't recur.
 
-```
-Tier 0: Core Identity (ALWAYS included)         ~200 tokens
-Tier 1: Active Task Context (DYNAMIC)           ~300-800 tokens
-Tier 2: Relevant Tool Schemas (PREDICTED)       ~200-500 tokens
-Tier 3: On-Demand Reference (LOADED IF NEEDED)  0 tokens (retrieved via memory)
-```
+### Sliding Window Loses Critical Context
 
-#### Tier 0: Core Identity (~200 tokens, always present)
+**Failure**: The LLM's response indicates it's missing context ("I don't have information about X", "Could you remind me...").
+**Detection**: Pattern match on the LLM response for uncertainty/missing-context signals.
+**Recovery**:
+1. Expand the MIDDLE window for the next turn (include 5 more turns from history)
+2. Trigger a proactive memory search for the topic mentioned in the uncertainty signal
+3. If the context was in OLD turns, it should already be in the session transcript — inject the relevant turns back
+**Degradation**: Graceful — the window expands temporarily, then contracts again when the context gap is resolved.
 
-```
-You are OpenClaw, a personal AI assistant.
-Safety: No self-preservation, replication, or power-seeking. Pause and ask if instructions conflict.
-Workspace: {workspaceDir}
-Runtime: {model} | {channel} | thinking={level}
-```
+### Compaction Summary Loses Detail
 
-That's it. Everything else moves to lower tiers or memory.
+**Failure**: A periodic summarization loses a critical detail that the user later asks about.
+**Detection**: The agent can't answer a question that it previously had context for.
+**Recovery**: The full session transcript (JSONL) is never modified. The `memory_search` tool can still retrieve the original content. The summarization is additive — it creates a summary that's *prepended* to context, but the original data remains on disk.
+**Degradation**: Worst case, the agent has to do an explicit `memory_search` or `read` of the session transcript. This costs a tool call round-trip but doesn't lose data.
 
-#### Tier 1: Active Task Context (~300-800 tokens, dynamic)
+### Heuristic Consolidation Extracts Wrong Decisions
 
-Built from the attention schema and working memory:
-
-```
-Current task: {attentionSchema.currentFocus}
-Recent context: {workingMemory.recentDecisions}
-User preferences: {semanticMemory.relevantPreferences}
-Active constraints: {workingMemory.activeConstraints}
-```
-
-This replaces the current approach of injecting all context files, all workspace notes, and all channel-specific instructions.
-
-#### Tier 2: Predicted Tool Schemas (~200-500 tokens, selective)
-
-Instead of sending all 25+ tool schemas every turn, the predictive model selects 3-5 tools likely to be needed:
-
-```typescript
-function selectToolSchemas(
-  prediction: PredictiveModel,
-  available: ToolSchema[]
-): ToolSchema[] {
-  // Score each tool against the predicted next action
-  const scored = available.map(tool => ({
-    tool,
-    score: computeToolRelevance(tool, prediction.expectedNextAction)
-  }));
-
-  // Always include: read, exec (baseline capabilities)
-  // Add predicted tools up to budget
-  return scored
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5)
-    .map(s => s.tool);
-}
-```
-
-**Token savings**: ~800-1,200 tokens per turn (from ~1,500 for all schemas to ~300-500 for predicted subset).
-
-#### Tier 3: On-Demand Reference (0 tokens by default)
-
-CLI reference, reaction guidance, voice hints, model aliases, docs paths - all move to semantic/procedural memory. Retrieved ONLY when the attention schema or sensory buffer detects relevance.
-
-### Estimated System Prompt Savings
-
-| Component | Current | Redesigned | Savings |
-|-----------|---------|------------|---------|
-| Identity + Safety | ~800 | ~200 | 600 |
-| Tool schemas | ~1,500 | ~400 | 1,100 |
-| CLI reference | ~300 | 0 (in memory) | 300 |
-| Messaging rules | ~400 | 0 (in memory) | 400 |
-| Channel config | ~200 | 0 (in memory) | 200 |
-| Context files | ~1,000+ | ~300 (compressed) | 700+ |
-| **Total** | **~4,200+** | **~900** | **~3,300+** |
+**Failure**: The regex-based decision extractor misidentifies a conditional statement as a decision (e.g., "I'll do X if you want" tagged as decided).
+**Detection**: Hard to detect automatically. The working memory will contain a false decision.
+**Mitigation**: Working memory decisions have a max TTL (cleared after 10 turns of not being referenced). The LLM receives the full RECENT window verbatim, so it has ground truth for the last 3 turns. False decisions in working memory can only mislead context for messages referencing turns 4+ back.
+**Degradation**: Low impact — the LLM's own judgment takes precedence over working memory hints.
 
 ---
 
-## Part V: Token-Optimized Compaction Redesign
+## Part IV: Implementation Roadmap
 
-### Current Compaction: Problems
+### Phase 1: System Prompt Compression + Tool Selection
 
-1. **Reactive**: Only triggers on context overflow (too late)
-2. **Lossy**: Summarization loses critical details
-3. **Expensive**: Each compaction requires 1-3 additional LLM calls
-4. **No selectivity**: Treats all history equally
+**Changes to existing files:**
+- `src/agents/system-prompt.ts` — Refactor `buildAgentSystemPrompt()` to support tier-based section inclusion. Add `PromptTier` parameter ("compact" | "standard" | "full"). Default to "compact" for normal turns, "standard" for first turn of session, "full" for diagnostic mode.
+- `src/agents/system-prompt.ts` — Move Tier 2 content (CLI reference, self-update, model aliases, docs URLs, heartbeat, silent replies) into a separate retrievable block stored as a bootstrap file or internal reference.
 
-### Redesign: Proactive Neural Compaction
+**New files:**
+- `src/agents/context/tool-groups.ts` — Static tool group definitions + `selectToolsForTurn(userMessage, sessionHistory, availableTools)` function. ~150 lines.
 
-#### 5a. Continuous Consolidation (replaces reactive compaction)
+**Integration point:** The tool filtering happens in `compact.ts` after `createOpenClawCodingTools()` and before `splitSdkTools()`. The tool array is filtered to include only relevant tools.
 
-Instead of waiting for overflow, consolidate after EVERY turn:
+**What to measure (baselines needed before starting):**
+- Token count of system prompt per turn across 50+ sessions (log `estimateTokens()` on the system prompt string)
+- Token count of tool schemas per turn (log `estimateTokens()` on the serialized tool definitions)
+- Compaction frequency (how often `compactEmbeddedPiSessionDirect()` is called)
+- Session length in turns before first compaction
 
-```typescript
-async function postTurnConsolidation(
-  turn: CompletedTurn,
-  workspace: GlobalWorkspace
-): Promise<void> {
-  // 1. Extract structured data from the turn (local, no LLM)
-  const extracted = extractTurnData(turn);
+**Target (based on measured baselines):** 35-45% reduction in per-turn system prompt + tool schema tokens. Exact number depends on baseline measurement.
 
-  // 2. Update episodic memory (local, no LLM)
-  await episodicMemory.addEpisode(extracted.episode);
+### Phase 2: Sliding Window + Working Memory
 
-  // 3. Update semantic facts (local, no LLM)
-  for (const fact of extracted.facts) {
-    await semanticMemory.upsert(fact);
-  }
+**Changes to existing files:**
+- `src/agents/pi-embedded-runner/history.ts` — Add `buildWeightedHistory()` alongside existing `limitHistoryTurns()`. The existing function remains as fallback.
+- `src/agents/pi-embedded-runner/compact.ts` (lines 574-587) — Replace the `limitHistoryTurns()` call with `buildWeightedHistory()` when the feature is enabled.
 
-  // 4. Update procedural memory if tools were used (local, no LLM)
-  if (extracted.toolSequence.length > 0) {
-    await proceduralMemory.recordSequence(extracted.toolSequence);
-  }
+**New files:**
+- `src/agents/context/working-memory.ts` — WorkingMemory class. ~200 lines. Updated after each turn via heuristic extraction from the completed turn.
+- `src/agents/context/turn-extractor.ts` — Functions to extract decisions, constraints, and topics from a completed turn. ~150 lines. Pure regex/pattern matching, no LLM.
 
-  // 5. Decay old working memory items (local, no LLM)
-  workspace.workingMemory.applyDecay();
+**Integration point:** Working memory is initialized when a session starts (from the session transcript if it exists), updated after each turn in the post-turn path (after `flushPendingToolResultsAfterIdle()` in `compact.ts:696`), and injected as a structured block in the context assembly.
 
-  // 6. Update attention schema (local, no LLM)
-  workspace.attentionSchema.updateAfterTurn(turn);
+**What to measure:**
+- Token count of session history per turn (baseline vs. weighted window)
+- Compaction frequency (should decrease significantly)
+- Task completion rate (should stay the same or improve)
+- Tool selector miss rate (from Phase 1 logging)
 
-  // 7. Update predictive model (local, no LLM)
-  workspace.predictiveModel.updateAfterTurn(turn, extracted);
-}
-```
+**Target:** Cumulative 55-65% reduction in total context tokens vs. pre-Phase-1 baseline.
 
-**Key insight**: ALL of this is local computation. No LLM calls. No token cost. The structured extraction uses pattern matching and the existing embedding infrastructure, not additional LLM calls.
+### Phase 3: Adaptive Context Manager
 
-#### 5b. Structured Extraction (replaces LLM summarization)
+**Changes to existing files:**
+- `src/agents/pi-embedded-runner/compact.ts` — Replace the static context assembly with an adaptive manager that adjusts based on task type and available budget.
 
-Instead of using an LLM to summarize (which costs tokens), extract structured data using pattern matching:
+**New files:**
+- `src/agents/context/context-manager.ts` — Central coordinator. Takes the working memory, reference memory results, weighted history, and tool schemas, then assembles the final context within a token budget. ~300 lines.
+- `src/agents/context/proactive-retrieval.ts` — Embeds the user message and queries reference memory. Injects top results if relevant. ~100 lines. Uses existing embedding infrastructure.
 
-```typescript
-function extractTurnData(turn: CompletedTurn): ExtractedTurnData {
-  return {
-    episode: {
-      summary: truncateToSentence(turn.assistantReply, 100), // first sentence
-      decisions: extractDecisions(turn),     // regex: "I'll", "Let's", "decided to"
-      topics: extractTopics(turn),           // NER-like extraction using existing embeddings
-      toolsUsed: turn.toolCalls.map(t => t.name),
-      userIntent: classifyIntent(turn.userMessage),
-    },
-    facts: extractFacts(turn),               // "X is Y" pattern matching
-    toolSequence: turn.toolCalls,
-  };
-}
-```
+**What makes this different from Phases 1-2:** Phases 1-2 are independent optimizations. Phase 3 makes them work together. The context manager dynamically allocates token budget between system prompt, tools, history, working memory, and proactive retrieval based on what the current turn needs. If the user is asking a simple question, more budget goes to working memory and less to tool schemas. If the user is doing complex file editing, more budget goes to tools and recent history.
 
-**When LLM summarization IS needed** (rare): Only for consolidation of 20+ episodes into a compressed episodic summary. This happens every ~50 turns instead of every overflow.
+**Recovery mechanisms:**
+- If the LLM signals missing context → expand history window next turn
+- If tool selector misses → include missing tool + log for pattern improvement
+- If summary is stale → trigger fresh summarization before next turn
 
-#### 5c. Intelligent Eviction (replaces chunk-and-drop)
+**Target:** Cumulative 65-75% reduction in total context tokens. Higher context relevance (measured as: percentage of injected tokens that the LLM actually references in its response — logged and measured).
 
-When the global workspace approaches capacity, evict items based on a composite score:
-
-```typescript
-function computeEvictionScore(item: WorkspaceItem): number {
-  const recencyScore = 1 / (1 + (Date.now() - item.lastAccessed) / HOUR_MS);
-  const frequencyScore = Math.log(1 + item.accessCount) / MAX_LOG_ACCESS;
-  const integrationScore = item.integrationScore; // IIT: how connected is this fact
-  const taskRelevance = item.relevanceToCurrentTask;
-
-  // ACT-R base-level activation formula, adapted
-  const activation =
-    taskRelevance * 0.4 +
-    recencyScore * 0.25 +
-    frequencyScore * 0.15 +
-    integrationScore * 0.2;
-
-  return activation;
-}
-```
-
-Items with the lowest activation score get evicted to long-term memory first. Critical decisions, active constraints, and high-integration facts survive longest.
+**No Phase 4.** If Phases 1-3 deliver the measured targets, the system is done. If they don't, the right response is to debug and improve the concrete mechanisms, not to add another abstraction layer on top.
 
 ---
 
-## Part VI: Implementation Roadmap
+## Part V: Configuration
 
-### Phase 1: Foundation (Non-Breaking Improvements)
-
-**Goal**: Reduce token usage by 40-60% with minimal architecture changes.
-
-#### 1.1 System Prompt Compression
-
-- **File**: Modify `src/agents/system-prompt.ts`
-- **Change**: Implement Tier 0/1/2 system prompt. Move static sections to a new `src/agents/neural/prompt-tiers.ts`
-- **Effort**: Moderate - refactor existing `buildAgentSystemPrompt` function
-- **Risk**: Low - backward compatible, just sends less
-- **Expected savings**: 2,000-3,000 tokens per turn
-
-#### 1.2 Predictive Tool Schema Selection
-
-- **File**: New `src/agents/neural/tool-predictor.ts`
-- **Change**: Analyze user message intent to select relevant tool schemas instead of sending all
-- **Depends on**: Intent classification (can start with keyword heuristics, upgrade to embeddings later)
-- **Expected savings**: 800-1,200 tokens per turn
-
-#### 1.3 Working Memory Extraction
-
-- **File**: New `src/agents/neural/working-memory.ts`
-- **Change**: After each turn, extract key decisions/facts into structured working memory. Use this instead of full session history for context.
-- **Depends on**: Pattern matching extractors (no LLM needed)
-- **Expected savings**: 3,000-10,000 tokens per turn (replacing full history with compressed working memory)
-
-### Phase 2: Memory Architecture (New Capabilities)
-
-**Goal**: Implement the four-tier memory system. Replace brute-force compaction with intelligent consolidation.
-
-#### 2.1 Episodic Memory Store
-
-- **File**: New `src/memory/episodic.ts`
-- **Change**: SQLite table for episodes with embedding vectors, decay parameters, access tracking
-- **Integrates with**: Existing `src/memory/manager.ts` SQLite infrastructure
-- **Schema addition**: `episodes` table alongside existing `chunks` table
-
-#### 2.2 Semantic Memory Store
-
-- **File**: New `src/memory/semantic.ts`
-- **Change**: Knowledge graph stored in SQLite. Triple store (subject, predicate, object) with embeddings for retrieval
-- **Integrates with**: Existing embedding infrastructure in `src/memory/embeddings.ts`
-
-#### 2.3 Procedural Memory Store
-
-- **File**: New `src/memory/procedural.ts`
-- **Change**: Compressed tool-use patterns stored as procedures
-- **Integrates with**: Existing tool infrastructure
-
-#### 2.4 Memory Consolidation Engine
-
-- **File**: New `src/agents/neural/consolidation.ts`
-- **Change**: Background process that runs between turns to consolidate working memory into long-term stores
-- **Trigger**: Post-turn hook in `pi-embedded-subscribe.ts`
-
-### Phase 3: Global Workspace & Attention (Core Redesign)
-
-**Goal**: Replace the flat context assembly with the GWT-inspired competitive workspace.
-
-#### 3.1 Global Workspace Manager
-
-- **File**: New `src/agents/neural/workspace.ts`
-- **Change**: Central coordinator that manages context budget, runs the competition mechanism, and assembles the final context payload
-- **Replaces**: Parts of `pi-embedded-runner/compact.ts` and the context assembly in `pi-embedded-runner/run.ts`
-
-#### 3.2 Attention Schema
-
-- **File**: New `src/agents/neural/attention-schema.ts`
-- **Change**: Self-model tracking current focus, confidence, cognitive load
-- **Enables**: Smarter context loading, better uncertainty reporting, hallucination prevention
-
-#### 3.3 Predictive Context Loading
-
-- **File**: New `src/agents/neural/predictive-model.ts`
-- **Change**: Maintains expectations about next user action. Pre-loads relevant context, skips irrelevant context.
-- **Uses**: Existing embeddings infrastructure for similarity scoring
-
-#### 3.4 Sensory Buffer
-
-- **File**: New `src/agents/neural/sensory-buffer.ts`
-- **Change**: Preprocessing layer for incoming messages. Extracts intent, tags semantics, triggers predictive loading.
-- **Integrates with**: `src/auto-reply/dispatch.ts` as the first processing step
-
-### Phase 4: Consciousness Simulation Layer (Advanced)
-
-**Goal**: Integrate all components into a coherent consciousness-like architecture.
-
-#### 4.1 Integration Metric (IIT-Inspired)
-
-- **File**: New `src/agents/neural/integration.ts`
-- **Change**: Compute integration scores for context elements. Highly integrated information (connected to many facts) gets priority in the workspace.
-
-#### 4.2 Competitive Broadcasting (GWT-Inspired)
-
-- **File**: Enhancement to `src/agents/neural/workspace.ts`
-- **Change**: Context elements actively compete for workspace slots. Winners get "broadcast" (included in context). The competition uses integration scores, relevance, recency, and access frequency.
-
-#### 4.3 Meta-Cognitive Monitoring
-
-- **File**: New `src/agents/neural/metacognition.ts`
-- **Change**: The agent monitors its own reasoning process. Detects when it's uncertain, when context is insufficient, when it should ask for clarification vs. proceed.
-
----
-
-## Part VII: Projected Impact
-
-### Token Usage Reduction
-
-| Scenario | Current Tokens | Redesigned Tokens | Reduction |
-|----------|---------------|-------------------|-----------|
-| Simple question (turn 1) | ~6,000 | ~2,500 | 58% |
-| Mid-conversation (turn 10) | ~15,000 | ~4,500 | 70% |
-| Long session (turn 50) | ~30,000+ (pre-compaction) | ~6,000 | 80% |
-| Post-compaction (turn 50+) | ~12,000 | ~5,000 | 58% |
-| Average across session | ~15,000 | ~4,500 | **70%** |
-
-### Context Quality Improvement
-
-| Metric | Current | Redesigned |
-|--------|---------|------------|
-| Relevant context ratio | ~30-40% | ~85-95% |
-| Decision retention after compaction | ~40% | ~95% |
-| User preference recall accuracy | ~60% | ~95% |
-| Tool selection accuracy | ~70% | ~90% |
-| Cross-session memory | Basic search | Structured episodic + semantic |
-
-### Latency Impact
-
-| Operation | Current | Redesigned |
-|-----------|---------|------------|
-| Context assembly | ~50ms | ~80ms (workspace competition adds ~30ms) |
-| LLM API call | Baseline | ~30-50% faster (smaller payload) |
-| Post-turn consolidation | N/A | ~100ms (async, doesn't block response) |
-| Compaction frequency | Every ~20-30 turns | Rarely needed (continuous consolidation) |
-| Net turn latency | Baseline | **~20-40% faster** (smaller payload dominates) |
-
----
-
-## Part VIII: File Structure
-
-```
-src/agents/neural/
-  index.ts                    # Public API
-  sensory-buffer.ts           # Layer 1: Input preprocessing
-  global-workspace.ts         # Layer 2: GWT-inspired context manager
-  working-memory.ts           # Layer 3a: Active task state
-  attention-schema.ts         # Layer 4: Self-model
-  predictive-model.ts         # Layer 5: Friston-inspired predictions
-  consolidation.ts            # Background memory consolidation
-  prompt-tiers.ts             # Tiered system prompt construction
-  tool-predictor.ts           # Predictive tool schema selection
-  integration.ts              # IIT-inspired integration metrics
-  metacognition.ts            # Meta-cognitive monitoring
-  eviction.ts                 # ACT-R inspired memory eviction
-  types.ts                    # Shared type definitions
-
-src/memory/
-  episodic.ts                 # Episodic memory store (new)
-  semantic.ts                 # Semantic knowledge graph (new)
-  procedural.ts               # Procedural memory store (new)
-  // existing files unchanged - manager.ts, embeddings.ts, etc.
-```
-
----
-
-## Part IX: Configuration
-
-All neural features will be configurable via the existing `openclaw config` system:
+All features are behind config flags in the existing `openclaw config` system:
 
 ```yaml
 agents:
   defaults:
-    neural:
-      enabled: true                        # Master toggle
-      workspace:
-        totalBudget: 6000                  # Max tokens for global workspace
-        competitionEnabled: true            # GWT competition mechanism
-      memory:
-        episodic:
-          enabled: true
-          maxEpisodes: 1000
-          decayHalfLifeHours: 168          # 1 week
-        semantic:
-          enabled: true
-          maxFacts: 5000
-          confidenceThreshold: 0.5
-        procedural:
-          enabled: true
-          maxProcedures: 200
+    context:
+      enabled: true                         # Master toggle for new context system
+      promptTier: "compact"                 # "compact" | "standard" | "full"
+      toolSelection:
+        enabled: true                       # Group-based tool filtering
+        alwaysInclude: ["read", "write", "edit", "exec", "ls"]  # Core tools
+        maxTools: 12                        # Upper bound before filtering stops
+      history:
+        recentWindow: 3                     # Full turns to keep verbatim
+        middleWindow: 7                     # Compressed turns to keep
+        middleTruncateChars: 200            # Max chars per middle-window message
+      workingMemory:
+        enabled: true
+        maxDecisions: 5                     # Recent decisions to track
+        decisionTtlTurns: 10               # Clear after N turns unreferenced
       consolidation:
-        enabled: true
-        runAfterEveryTurn: true
-        llmSummarizeEveryNTurns: 50        # Only use LLM rarely
-      prediction:
-        enabled: true
-        toolSelectionTopK: 5
-      attention:
-        schemaEnabled: true
-        metacognitionEnabled: true
-      promptTiers:
-        tier0MaxTokens: 200
-        tier1MaxTokens: 800
-        tier2MaxTokens: 500
+        heuristic: true                     # Free pattern-matching extraction
+        embeddingRetrieval: true            # Proactive memory search per turn
+        periodicSummary:
+          enabled: false                    # Opt-in cheap-model summarization
+          everyNTurns: 20
+          model: "haiku"                    # Model for periodic summarization
+      fallback:
+        expandOnUncertainty: true           # Auto-expand window on missing context
+        retryOnToolMiss: true               # Retry with missing tool on selector miss
 ```
+
+**Backward compatibility:**
+- `context.enabled: false` → current behavior, no changes
+- Each sub-feature can be toggled independently
+- Existing compaction (`compaction.ts`) remains as emergency fallback even when new system is active
 
 ---
 
-## Part X: Migration Strategy
+## Part VI: Migration Strategy
 
-### Backward Compatibility
+### Rollout
 
-- The neural system starts DISABLED by default (`neural.enabled: false`)
-- Existing compaction, system prompt, and memory systems remain functional
-- Users opt-in via `openclaw config set agents.defaults.neural.enabled true`
-- Gradual rollout: Phase 1 features can be enabled independently
+1. **Instrument first**: Before any code changes, add token logging to measure baselines across system prompt, tool schemas, session history, and total context per turn. Run for 1-2 weeks across real sessions.
+2. **Phase 1 ships as opt-in**: `context.enabled: true` enables tiered prompt + tool selection. Measure delta against baselines.
+3. **Phase 2 ships after Phase 1 is validated**: Sliding window + working memory activate together. Measure again.
+4. **Phase 3 ships after Phase 2 is validated**: Adaptive manager coordinates all components.
 
-### Data Migration
+### Data Safety
 
-- Existing session JSONL files remain valid (the neural system reads them during initial consolidation)
-- Existing memory SQLite databases gain new tables (episodes, semantic_facts, procedures) without breaking existing tables
-- First run with neural enabled triggers a one-time "initial consolidation" that processes existing session history into the new memory tiers
+- Session JSONL files are never modified destructively
+- Working memory is ephemeral (in-memory per session, reconstructed from transcript on restart)
+- No new database tables required for Phases 1-2
+- Phase 3's proactive retrieval uses the existing memory store — no schema changes
 
 ### Rollback
 
-- Setting `neural.enabled: false` reverts to current behavior
-- No data loss: original session files and memory databases are never modified destructively
-- The neural memory tables are additive (new tables alongside existing ones)
+- Any feature can be disabled via config without data loss
+- The existing compaction system (`compaction.ts`, `summarizeInStages()`) continues to function as the emergency overflow handler regardless of whether the new system is active
 
 ---
 
-## Summary
+## Part VII: File Structure
 
-This redesign transforms OpenClaw from a stateless token-expensive system into a consciousness-inspired cognitive architecture that:
+```
+src/agents/context/
+  index.ts                    # Public API
+  tool-groups.ts              # Static tool group definitions + selectToolsForTurn()
+  working-memory.ts           # WorkingMemory class (session-scoped state)
+  turn-extractor.ts           # Heuristic extraction (decisions, constraints, topics)
+  weighted-history.ts         # buildWeightedHistory() (replaces limitHistoryTurns)
+  context-manager.ts          # Phase 3: adaptive context assembly coordinator
+  proactive-retrieval.ts      # Phase 3: embedding-based proactive memory injection
+  types.ts                    # Shared type definitions
+```
 
-1. **Reduces token usage by ~70%** through intelligent context curation
-2. **Preserves critical information** through structured memory tiers instead of lossy summarization
-3. **Speeds up responses** by sending smaller, more relevant payloads
-4. **Simulates aspects of consciousness** through the Global Workspace, Attention Schema, and Predictive Processing
-5. **Improves over time** as the memory system learns user preferences, common workflows, and task patterns
-6. **Maintains backward compatibility** through feature flags and additive changes
+Changes to existing files:
+- `src/agents/system-prompt.ts` — add tier support, move Tier 2 sections out
+- `src/agents/pi-embedded-runner/history.ts` — add `buildWeightedHistory()`
+- `src/agents/pi-embedded-runner/compact.ts` — integrate new components at existing hook points
 
-The approach is grounded in peer-reviewed neuroscience (Baars, Tononi, Graziano, Friston) and proven cognitive architectures (SOAR, ACT-R, MemGPT), adapted for the practical constraints of LLM-based agent systems.
+---
+
+## Part VIII: Honest Projections
+
+### What We Can Estimate
+
+| Optimization | Mechanism | Savings Estimate | Confidence |
+|-------------|-----------|-----------------|------------|
+| System prompt tiering | Remove Tier 2 sections (~15 sections → ~8 sections) | 1,000-3,000 tok/turn | High — this is just removing text |
+| Tool schema filtering | 25 tools → 5-8 relevant tools | 900-1,600 tok/turn | Medium — depends on schema sizes, needs measurement |
+| Sliding window history | Last 3 full + 7 compressed + 0 old vs. all turns | 3,000-8,000 tok/turn (sessions with 10+ turns) | Medium — varies by session length |
+| Working memory injection | Small structured block vs. re-reading full history | 500-1,000 tok/turn (indirect, reduces tool calls) | Low — hard to measure precisely |
+
+### What We Don't Know Yet
+
+- **Actual token counts per component**: We need instrumentation before we can set targets. The estimates above are based on code inspection and character-to-token ratios, not measured data.
+- **Impact on task completion**: Removing context could degrade quality. We need A/B testing or at minimum regression testing against a set of representative tasks.
+- **Compaction interaction**: The sliding window should reduce compaction frequency, but by how much depends on session length distributions we haven't measured.
+- **Tool selector accuracy**: The keyword-based approach will have false negatives. We won't know the miss rate until we measure it in production.
+
+### Targets (to be revised after baseline measurement)
+
+- Phase 1: 30-40% reduction in system prompt + tool schema tokens
+- Phase 2: 50-60% reduction in total context tokens for sessions > 10 turns
+- Phase 3: 60-70% reduction in total context tokens with improved relevance
+- All phases: zero regression in task completion rate on representative test sessions
