@@ -9,13 +9,13 @@ title: "ClawHub"
 
 # ClawHub
 
-ClawHub is the **public skill registry for OpenClaw**. It is a free service: all skills are public, open, and visible to everyone for sharing and reuse. A skill is just a folder with a `SKILL.md` file (plus supporting text files). You can browse skills in the web app or use the CLI to search, install, update, and publish skills.
+ClawHub is the **public skill registry for OpenWolf**. It is a free service: all skills are public, open, and visible to everyone for sharing and reuse. A skill is just a folder with a `SKILL.md` file (plus supporting text files). You can browse skills in the web app or use the CLI to search, install, update, and publish skills.
 
-Site: [clawhub.ai](https://clawhub.ai)
+Site: [wolfhub.ai](https://wolfhub.ai)
 
 ## What ClawHub is
 
-- A public registry for OpenClaw skills.
+- A public registry for OpenWolf skills.
 - A versioned store of skill bundles and metadata.
 - A discovery surface for search, tags, and usage signals.
 
@@ -24,7 +24,7 @@ Site: [clawhub.ai](https://clawhub.ai)
 1. A user publishes a skill bundle (files + metadata).
 2. ClawHub stores the bundle, parses metadata, and assigns a version.
 3. The registry indexes the skill for search and discovery.
-4. Users browse, download, and install skills in OpenClaw.
+4. Users browse, download, and install skills in OpenWolf.
 
 ## What you can do
 
@@ -36,7 +36,7 @@ Site: [clawhub.ai](https://clawhub.ai)
 
 ## Who this is for (beginner-friendly)
 
-If you want to add new capabilities to your OpenClaw agent, ClawHub is the easiest way to find and install skills. You do not need to know how the backend works. You can:
+If you want to add new capabilities to your OpenWolf agent, ClawHub is the easiest way to find and install skills. You do not need to know how the backend works. You can:
 
 - Search for skills by plain language.
 - Install a skill into your workspace.
@@ -47,33 +47,33 @@ If you want to add new capabilities to your OpenClaw agent, ClawHub is the easie
 
 1. Install the CLI (see next section).
 2. Search for something you need:
-   - `clawhub search "calendar"`
+   - `wolfhub search "calendar"`
 3. Install a skill:
-   - `clawhub install <skill-slug>`
-4. Start a new OpenClaw session so it picks up the new skill.
+   - `wolfhub install <skill-slug>`
+4. Start a new OpenWolf session so it picks up the new skill.
 
 ## Install the CLI
 
 Pick one:
 
 ```bash
-npm i -g clawhub
+npm i -g wolfhub
 ```
 
 ```bash
-pnpm add -g clawhub
+pnpm add -g wolfhub
 ```
 
-## How it fits into OpenClaw
+## How it fits into OpenWolf
 
-By default, the CLI installs skills into `./skills` under your current working directory. If a OpenClaw workspace is configured, `clawhub` falls back to that workspace unless you override `--workdir` (or `CLAWHUB_WORKDIR`). OpenClaw loads workspace skills from `<workspace>/skills` and will pick them up in the **next** session. If you already use `~/.openclaw/skills` or bundled skills, workspace skills take precedence.
+By default, the CLI installs skills into `./skills` under your current working directory. If a OpenWolf workspace is configured, `wolfhub` falls back to that workspace unless you override `--workdir` (or `CLAWHUB_WORKDIR`). OpenWolf loads workspace skills from `<workspace>/skills` and will pick them up in the **next** session. If you already use `~/.openwolf/skills` or bundled skills, workspace skills take precedence.
 
 For more detail on how skills are loaded, shared, and gated, see
 [Skills](/tools/skills).
 
 ## Skill system overview
 
-A skill is a versioned bundle of files that teaches OpenClaw how to perform a
+A skill is a versioned bundle of files that teaches OpenWolf how to perform a
 specific task. Each publish creates a new version, and the registry keeps a
 history of versions so users can audit changes.
 
@@ -112,14 +112,14 @@ Reporting and moderation:
 - Moderators can view hidden skills, unhide them, delete them, or ban users.
 - Abusing the report feature can result in account bans.
 
-Interested in becoming a moderator? Ask in the OpenClaw Discord and contact a
+Interested in becoming a moderator? Ask in the OpenWolf Discord and contact a
 moderator or maintainer.
 
 ## CLI commands and parameters
 
 Global options (apply to all commands):
 
-- `--workdir <dir>`: Working directory (default: current dir; falls back to OpenClaw workspace).
+- `--workdir <dir>`: Working directory (default: current dir; falls back to OpenWolf workspace).
 - `--dir <dir>`: Skills directory, relative to workdir (default: `skills`).
 - `--site <url>`: Site base URL (browser login).
 - `--registry <url>`: Registry API base URL.
@@ -128,9 +128,9 @@ Global options (apply to all commands):
 
 Auth:
 
-- `clawhub login` (browser flow) or `clawhub login --token <token>`
-- `clawhub logout`
-- `clawhub whoami`
+- `wolfhub login` (browser flow) or `wolfhub login --token <token>`
+- `wolfhub logout`
+- `wolfhub whoami`
 
 Options:
 
@@ -140,29 +140,29 @@ Options:
 
 Search:
 
-- `clawhub search "query"`
+- `wolfhub search "query"`
 - `--limit <n>`: Max results.
 
 Install:
 
-- `clawhub install <slug>`
+- `wolfhub install <slug>`
 - `--version <version>`: Install a specific version.
 - `--force`: Overwrite if the folder already exists.
 
 Update:
 
-- `clawhub update <slug>`
-- `clawhub update --all`
+- `wolfhub update <slug>`
+- `wolfhub update --all`
 - `--version <version>`: Update to a specific version (single slug only).
 - `--force`: Overwrite when local files do not match any published version.
 
 List:
 
-- `clawhub list` (reads `.clawhub/lock.json`)
+- `wolfhub list` (reads `.wolfhub/lock.json`)
 
 Publish:
 
-- `clawhub publish <path>`
+- `wolfhub publish <path>`
 - `--slug <slug>`: Skill slug.
 - `--name <name>`: Display name.
 - `--version <version>`: Semver version.
@@ -171,12 +171,12 @@ Publish:
 
 Delete/undelete (owner/admin only):
 
-- `clawhub delete <slug> --yes`
-- `clawhub undelete <slug> --yes`
+- `wolfhub delete <slug> --yes`
+- `wolfhub undelete <slug> --yes`
 
 Sync (scan local skills + publish new/updated):
 
-- `clawhub sync`
+- `wolfhub sync`
 - `--root <dir...>`: Extra scan roots.
 - `--all`: Upload everything without prompts.
 - `--dry-run`: Show what would be uploaded.
@@ -190,19 +190,19 @@ Sync (scan local skills + publish new/updated):
 ### Search for skills
 
 ```bash
-clawhub search "postgres backups"
+wolfhub search "postgres backups"
 ```
 
 ### Download new skills
 
 ```bash
-clawhub install my-skill-pack
+wolfhub install my-skill-pack
 ```
 
 ### Update installed skills
 
 ```bash
-clawhub update --all
+wolfhub update --all
 ```
 
 ### Back up your skills (publish or sync)
@@ -210,13 +210,13 @@ clawhub update --all
 For a single skill folder:
 
 ```bash
-clawhub publish ./my-skill --slug my-skill --name "My Skill" --version 1.0.0 --tags latest
+wolfhub publish ./my-skill --slug my-skill --name "My Skill" --version 1.0.0 --tags latest
 ```
 
 To scan and back up many skills at once:
 
 ```bash
-clawhub sync --all
+wolfhub sync --all
 ```
 
 ## Advanced details (technical)
@@ -233,16 +233,16 @@ Updates compare the local skill contents to registry versions using a content ha
 
 ### Sync scanning and fallback roots
 
-`clawhub sync` scans your current workdir first. If no skills are found, it falls back to known legacy locations (for example `~/openclaw/skills` and `~/.openclaw/skills`). This is designed to find older skill installs without extra flags.
+`wolfhub sync` scans your current workdir first. If no skills are found, it falls back to known legacy locations (for example `~/openwolf/skills` and `~/.openwolf/skills`). This is designed to find older skill installs without extra flags.
 
 ### Storage and lockfile
 
-- Installed skills are recorded in `.clawhub/lock.json` under your workdir.
+- Installed skills are recorded in `.wolfhub/lock.json` under your workdir.
 - Auth tokens are stored in the ClawHub CLI config file (override via `CLAWHUB_CONFIG_PATH`).
 
 ### Telemetry (install counts)
 
-When you run `clawhub sync` while logged in, the CLI sends a minimal snapshot to compute install counts. You can disable this entirely:
+When you run `wolfhub sync` while logged in, the CLI sends a minimal snapshot to compute install counts. You can disable this entirely:
 
 ```bash
 export CLAWHUB_DISABLE_TELEMETRY=1

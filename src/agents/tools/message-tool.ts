@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { OpenWolfConfig } from "../../config/config.js";
 import type { AnyAgentTool } from "./common.js";
 import { BLUEBUBBLES_GROUP_ACTIONS } from "../../channels/plugins/bluebubbles-actions.js";
 import {
@@ -403,7 +403,7 @@ const MessageToolSchema = buildMessageToolSchemaFromActions(AllMessageActions, {
 type MessageToolOptions = {
   agentAccountId?: string;
   agentSessionKey?: string;
-  config?: OpenClawConfig;
+  config?: OpenWolfConfig;
   currentChannelId?: string;
   currentChannelProvider?: string;
   currentThreadTs?: string;
@@ -414,7 +414,7 @@ type MessageToolOptions = {
 };
 
 function resolveMessageToolSchemaActions(params: {
-  cfg: OpenClawConfig;
+  cfg: OpenWolfConfig;
   currentChannelProvider?: string;
   currentChannelId?: string;
 }): string[] {
@@ -436,7 +436,7 @@ function resolveMessageToolSchemaActions(params: {
 }
 
 function resolveIncludeComponents(params: {
-  cfg: OpenClawConfig;
+  cfg: OpenWolfConfig;
   currentChannelProvider?: string;
 }): boolean {
   const currentChannel = normalizeMessageChannel(params.currentChannelProvider);
@@ -448,7 +448,7 @@ function resolveIncludeComponents(params: {
 }
 
 function buildMessageToolSchema(params: {
-  cfg: OpenClawConfig;
+  cfg: OpenWolfConfig;
   currentChannelProvider?: string;
   currentChannelId?: string;
 }) {
@@ -504,7 +504,7 @@ function filterActionsForContext(params: {
 }
 
 function buildMessageToolDescription(options?: {
-  config?: OpenClawConfig;
+  config?: OpenWolfConfig;
   currentChannel?: string;
   currentChannelId?: string;
 }): string {

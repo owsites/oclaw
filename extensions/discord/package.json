@@ -1,12 +1,12 @@
 {
-  "name": "@openclaw/discord",
+  "name": "@openwolf/discord",
   "version": "2026.2.16",
-  "description": "OpenClaw Discord channel plugin",
+  "description": "OpenWolf Discord channel plugin",
   "type": "module",
   "devDependencies": {
-    "openclaw": "workspace:*"
+    "openwolf": "workspace:*"
   },
-  "openclaw": {
+  "openwolf": {
     "extensions": [
       "./index.ts"
     ]

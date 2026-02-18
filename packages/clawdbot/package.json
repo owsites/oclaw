@@ -1,16 +1,16 @@
 {
-  "name": "clawdbot",
+  "name": "wolfbot",
   "version": "2026.2.12",
-  "description": "Compatibility shim that forwards to openclaw",
+  "description": "Compatibility shim that forwards to openwolf",
   "bin": {
-    "clawdbot": "./bin/clawdbot.js"
+    "wolfbot": "./bin/wolfbot.js"
   },
   "type": "module",
   "exports": {
     ".": "./index.js",
-    "./cli-entry": "./bin/clawdbot.js"
+    "./cli-entry": "./bin/wolfbot.js"
   },
   "dependencies": {
-    "openclaw": "workspace:*"
+    "openwolf": "workspace:*"
   }
 }

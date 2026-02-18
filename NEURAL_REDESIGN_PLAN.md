@@ -1,6 +1,6 @@
-# OpenClaw Context Optimization Plan v3
+# OpenWolf Context Optimization Plan v3
 
-## Self-Correcting Context Management for the OpenClaw Agent System
+## Self-Correcting Context Management for the OpenWolf Agent System
 
 Informed by analysis of MemGPT/Letta, Mem0, AutoGen, CrewAI, Claude Code, Reflexion, CRITIC, Voyager, and LangGraph.
 
@@ -10,7 +10,7 @@ Informed by analysis of MemGPT/Letta, Mem0, AutoGen, CrewAI, Claude Code, Reflex
 
 ### 1. How Context Is Built Today
 
-OpenClaw is a multi-channel AI gateway built in TypeScript (ESM). On every turn:
+OpenWolf is a multi-channel AI gateway built in TypeScript (ESM). On every turn:
 
 1. **Receives** a message via channel (Telegram, Discord, Signal, WhatsApp, Web, etc.)
 2. **Routes** through `src/auto-reply/` to the embedded Pi agent runner
@@ -34,7 +34,7 @@ OpenClaw is a multi-channel AI gateway built in TypeScript (ESM). On every turn:
 
 ### 3. What Competing Systems Do Better
 
-| System | Key Insight for OpenClaw | Evidence |
+| System | Key Insight for OpenWolf | Evidence |
 |--------|------------------------|----------|
 | **MemGPT/Letta** | Memory pressure warnings at 70% capacity — proactive, not just reactive at 100%. Core memory blocks the agent can self-edit. FIFO queue with recursive summary at position [0]. | 93.4% accuracy on Deep Memory Retrieval benchmark |
 | **Claude Code** | Context editing (clearing stale tool call results) gave **84% token reduction** and **29% performance improvement** — bigger gain than summarization. | Anthropic engineering blog, September 2025 |
@@ -230,7 +230,7 @@ Serialized as ~200-400 tokens. Much cheaper than including 10+ old turns to main
 **Tier 1 — Conditional (~200-800 tokens)**: Tool summaries, messaging, sandbox, reactions, skills
 **Tier 2 — Omitted**: CLI reference, self-update, model aliases, TTS, heartbeat, silent replies, docs URLs
 
-Tier 2 content written to a reference file at `~/.openclaw/reference-prompt.md` that the agent can `read` if needed. The agent is told in Tier 0: "Extended instructions available at {path} — read if you need CLI commands, update procedures, or protocol details."
+Tier 2 content written to a reference file at `~/.openwolf/reference-prompt.md` that the agent can `read` if needed. The agent is told in Tier 0: "Extended instructions available at {path} — read if you need CLI commands, update procedures, or protocol details."
 
 **Estimated savings**: ~2,000-4,000 → ~500-1,100 tokens. **~1,000-3,000 tokens/turn**.
 
@@ -430,11 +430,11 @@ Explicit scope exclusions based on the research:
 
 1. **No LLM-based memory curation per turn**. Mem0 uses an LLM to decide ADD/UPDATE/DELETE for every memory operation. At $0.01-0.05 per turn, this adds up. Our heuristic extraction is free and handles 80% of cases. The remaining 20% can be addressed by the periodic cheap-model summary (opt-in).
 
-2. **No knowledge graph**. Mem0's graph memory is powerful but their open-source version doesn't include it, and it requires Neo4j/Memgraph infrastructure. The ROI doesn't justify the complexity for OpenClaw's scale. Revisit if the two-tier memory proves insufficient.
+2. **No knowledge graph**. Mem0's graph memory is powerful but their open-source version doesn't include it, and it requires Neo4j/Memgraph infrastructure. The ROI doesn't justify the complexity for OpenWolf's scale. Revisit if the two-tier memory proves insufficient.
 
 3. **No LLMLingua-style BERT compression**. AutoGen integrates LLMLingua for token-level compression. It's impressive but adds a Python dependency, a separate model to load, and latency. Our stale tool result cleaner achieves similar savings (84% in Claude Code's data) with zero model overhead.
 
-4. **No heartbeat/chain-of-thought system**. MemGPT's heartbeat mechanism was deprecated in Letta V1 because modern models handle multi-step tool calling natively. OpenClaw already supports multi-step execution without explicit heartbeats.
+4. **No heartbeat/chain-of-thought system**. MemGPT's heartbeat mechanism was deprecated in Letta V1 because modern models handle multi-step tool calling natively. OpenWolf already supports multi-step execution without explicit heartbeats.
 
 5. **No "consciousness simulation" or meta-cognitive layer**. Killed in v2, stays killed. Observable signals (Correctors 1-5) are more reliable than asking the LLM about its own state.
 
@@ -462,7 +462,7 @@ The three transforms that require the least architectural change and deliver the
 
 **Changes to existing files:**
 - `src/agents/system-prompt.ts` — Add `PromptTier` parameter. Wrap Tier 2 sections in conditionals.
-- `src/agents/pi-embedded-runner/compact.ts` — Add stale tool result cleaning after `sanitizeSessionHistory()` (line 558). Add tool filtering after `createOpenClawCodingTools()` (line 359).
+- `src/agents/pi-embedded-runner/compact.ts` — Add stale tool result cleaning after `sanitizeSessionHistory()` (line 558). Add tool filtering after `createOpenWolfCodingTools()` (line 359).
 
 **New files:**
 - `src/agents/context/stale-tool-cleaner.ts` — `cleanStaleToolResults()`. ~100 lines.

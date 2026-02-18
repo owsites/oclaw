@@ -34,7 +34,7 @@ Status: production-ready for DMs + channels via Slack app integrations. Default 
         - install app and copy **Bot Token** (`xoxb-...`)
       </Step>
 
-      <Step title="Configure OpenClaw">
+      <Step title="Configure OpenWolf">
 
 ```json5
 {
@@ -74,7 +74,7 @@ SLACK_BOT_TOKEN=xoxb-...
       <Step title="Start gateway">
 
 ```bash
-openclaw gateway
+openwolf gateway
 ```
 
       </Step>
@@ -92,7 +92,7 @@ openclaw gateway
 
       </Step>
 
-      <Step title="Configure OpenClaw HTTP mode">
+      <Step title="Configure OpenWolf HTTP mode">
 
 ```json5
 {
@@ -152,7 +152,7 @@ For actions/directory reads, user token can be preferred when configured. For wr
     - `dm.groupEnabled` (group DMs default false)
     - `dm.groupChannels` (optional MPIM allowlist)
 
-    Pairing in DMs uses `openclaw pairing approve slack <code>`.
+    Pairing in DMs uses `openwolf pairing approve slack <code>`.
 
   </Tab>
 
@@ -205,7 +205,7 @@ For actions/directory reads, user token can be preferred when configured. For wr
 Default slash command settings:
 
 - `enabled: false`
-- `name: "openclaw"`
+- `name: "openwolf"`
 - `sessionPrefix: "slack:slash"`
 - `ephemeral: true`
 
@@ -289,7 +289,7 @@ Available action groups in current Slack tooling:
 
 ## Ack reactions
 
-`ackReaction` sends an acknowledgement emoji while OpenClaw is processing an inbound message.
+`ackReaction` sends an acknowledgement emoji while OpenWolf is processing an inbound message.
 
 Resolution order:
 
@@ -311,12 +311,12 @@ Notes:
 ```json
 {
   "display_information": {
-    "name": "OpenClaw",
-    "description": "Slack connector for OpenClaw"
+    "name": "OpenWolf",
+    "description": "Slack connector for OpenWolf"
   },
   "features": {
     "bot_user": {
-      "display_name": "OpenClaw",
+      "display_name": "OpenWolf",
       "always_online": false
     },
     "app_home": {
@@ -325,8 +325,8 @@ Notes:
     },
     "slash_commands": [
       {
-        "command": "/openclaw",
-        "description": "Send a message to OpenClaw",
+        "command": "/openwolf",
+        "description": "Send a message to OpenWolf",
         "should_escape": false
       }
     ]
@@ -405,9 +405,9 @@ Notes:
     Useful commands:
 
 ```bash
-openclaw channels status --probe
-openclaw logs --follow
-openclaw doctor
+openwolf channels status --probe
+openwolf logs --follow
+openwolf doctor
 ```
 
   </Accordion>
@@ -420,7 +420,7 @@ openclaw doctor
     - pairing approvals / allowlist entries
 
 ```bash
-openclaw pairing list slack
+openwolf pairing list slack
 ```
 
   </Accordion>

@@ -33,7 +33,7 @@ async function expectResetBlockedForNonOwner(params: {
       agents: {
         defaults: {
           model: "anthropic/claude-opus-4-5",
-          workspace: join(home, "openclaw"),
+          workspace: join(home, "openwolf"),
         },
       },
       channels: {
@@ -42,7 +42,7 @@ async function expectResetBlockedForNonOwner(params: {
         },
       },
       session: {
-        store: join(tmpdir(), `openclaw-session-test-${Date.now()}.json`),
+        store: join(tmpdir(), `openwolf-session-test-${Date.now()}.json`),
       },
     },
   );

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
+import type { OpenWolfConfig } from "../config/config.js";
 import * as replyModule from "../auto-reply/reply.js";
 import { resolveMainSessionKey } from "../config/sessions.js";
 import { runHeartbeatOnce } from "./heartbeat-runner.js";
@@ -48,7 +48,7 @@ describe("resolveHeartbeatIntervalMs", () => {
       replySpy: ReturnType<typeof vi.spyOn>;
     }) => Promise<T>,
   ) {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-hb-"));
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openwolf-hb-"));
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
@@ -81,7 +81,7 @@ describe("resolveHeartbeatIntervalMs", () => {
 
   it("respects ackMaxChars for heartbeat acks", async () => {
     await withTempHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
-      const cfg: OpenClawConfig = {
+      const cfg: OpenWolfConfig = {
         agents: {
           defaults: {
             workspace: tmpDir,
@@ -126,7 +126,7 @@ describe("resolveHeartbeatIntervalMs", () => {
 
   it("sends HEARTBEAT_OK when visibility.showOk is true", async () => {
     await withTempHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
-      const cfg: OpenClawConfig = {
+      const cfg: OpenWolfConfig = {
         agents: {
           defaults: {
             workspace: tmpDir,
@@ -171,7 +171,7 @@ describe("resolveHeartbeatIntervalMs", () => {
 
   it("does not deliver HEARTBEAT_OK to telegram when showOk is false", async () => {
     await withTempTelegramHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
-      const cfg: OpenClawConfig = {
+      const cfg: OpenWolfConfig = {
         agents: {
           defaults: {
             workspace: tmpDir,
@@ -219,7 +219,7 @@ describe("resolveHeartbeatIntervalMs", () => {
 
   it("skips heartbeat LLM calls when visibility disables all output", async () => {
     await withTempHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
-      const cfg: OpenClawConfig = {
+      const cfg: OpenWolfConfig = {
         agents: {
           defaults: {
             workspace: tmpDir,
@@ -269,7 +269,7 @@ describe("resolveHeartbeatIntervalMs", () => {
 
   it("skips delivery for markup-wrapped HEARTBEAT_OK", async () => {
     await withTempHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
-      const cfg: OpenClawConfig = {
+      const cfg: OpenWolfConfig = {
         agents: {
           defaults: {
             workspace: tmpDir,
@@ -315,7 +315,7 @@ describe("resolveHeartbeatIntervalMs", () => {
     await withTempHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
       const originalUpdatedAt = 1000;
       const bumpedUpdatedAt = 2000;
-      const cfg: OpenClawConfig = {
+      const cfg: OpenWolfConfig = {
         agents: {
           defaults: {
             workspace: tmpDir,
@@ -370,7 +370,7 @@ describe("resolveHeartbeatIntervalMs", () => {
 
   it("skips WhatsApp delivery when not linked or running", async () => {
     await withTempHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
-      const cfg: OpenClawConfig = {
+      const cfg: OpenWolfConfig = {
         agents: {
           defaults: {
             workspace: tmpDir,
@@ -417,7 +417,7 @@ describe("resolveHeartbeatIntervalMs", () => {
     expectedAccountId: string | undefined;
   }): Promise<void> {
     await withTempTelegramHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
-      const cfg: OpenClawConfig = {
+      const cfg: OpenWolfConfig = {
         agents: {
           defaults: {
             workspace: tmpDir,

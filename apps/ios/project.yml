@@ -1,6 +1,6 @@
-name: OpenClaw
+name: OpenWolf
 options:
-  bundleIdPrefix: ai.openclaw
+  bundleIdPrefix: ai.openwolf
   deploymentTarget:
     iOS: "18.0"
   xcodeVersion: "16.0"
@@ -10,33 +10,33 @@ settings:
     SWIFT_VERSION: "6.0"
 
 packages:
-  OpenClawKit:
-    path: ../shared/OpenClawKit
+  OpenWolfKit:
+    path: ../shared/OpenWolfKit
   Swabble:
     path: ../../Swabble
 
 schemes:
-  OpenClaw:
+  OpenWolf:
     shared: true
     build:
       targets:
-        OpenClaw: all
+        OpenWolf: all
     test:
       targets:
-        - OpenClawTests
+        - OpenWolfTests
 
 targets:
-  OpenClaw:
+  OpenWolf:
     type: application
     platform: iOS
     sources:
       - path: Sources
     dependencies:
-      - package: OpenClawKit
-      - package: OpenClawKit
-        product: OpenClawChatUI
-      - package: OpenClawKit
-        product: OpenClawProtocol
+      - package: OpenWolfKit
+      - package: OpenWolfKit
+        product: OpenWolfChatUI
+      - package: OpenWolfKit
+        product: OpenWolfProtocol
       - package: Swabble
         product: SwabbleKit
       - sdk: AppIntents.framework
@@ -71,15 +71,15 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: Y5PE65HELJ
-        PRODUCT_BUNDLE_IDENTIFIER: ai.openclaw.ios
-        PROVISIONING_PROFILE_SPECIFIER: "ai.openclaw.ios Development"
+        PRODUCT_BUNDLE_IDENTIFIER: ai.openwolf.ios
+        PROVISIONING_PROFILE_SPECIFIER: "ai.openwolf.ios Development"
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
         ENABLE_APPINTENTS_METADATA: NO
     info:
       path: Sources/Info.plist
       properties:
-        CFBundleDisplayName: OpenClaw
+        CFBundleDisplayName: OpenWolf
         CFBundleIconName: AppIcon
         CFBundleShortVersionString: "2026.2.16"
         CFBundleVersion: "20260216"
@@ -88,16 +88,16 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         UIBackgroundModes:
           - audio
-        NSLocalNetworkUsageDescription: OpenClaw discovers and connects to your OpenClaw gateway on the local network.
+        NSLocalNetworkUsageDescription: OpenWolf discovers and connects to your OpenWolf gateway on the local network.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoadsInWebContent: true
         NSBonjourServices:
-          - _openclaw-gw._tcp
-        NSCameraUsageDescription: OpenClaw can capture photos or short video clips when requested via the gateway.
-        NSLocationWhenInUseUsageDescription: OpenClaw uses your location when you allow location sharing.
-        NSLocationAlwaysAndWhenInUseUsageDescription: OpenClaw can share your location in the background when you enable Always.
-        NSMicrophoneUsageDescription: OpenClaw needs microphone access for voice wake.
-        NSSpeechRecognitionUsageDescription: OpenClaw uses on-device speech recognition for voice wake.
+          - _openwolf-gw._tcp
+        NSCameraUsageDescription: OpenWolf can capture photos or short video clips when requested via the gateway.
+        NSLocationWhenInUseUsageDescription: OpenWolf uses your location when you allow location sharing.
+        NSLocationAlwaysAndWhenInUseUsageDescription: OpenWolf can share your location in the background when you enable Always.
+        NSMicrophoneUsageDescription: OpenWolf needs microphone access for voice wake.
+        NSSpeechRecognitionUsageDescription: OpenWolf uses on-device speech recognition for voice wake.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown
@@ -109,26 +109,26 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
 
-  OpenClawTests:
+  OpenWolfTests:
     type: bundle.unit-test
     platform: iOS
     sources:
       - path: Tests
     dependencies:
-      - target: OpenClaw
+      - target: OpenWolf
       - package: Swabble
         product: SwabbleKit
       - sdk: AppIntents.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: ai.openclaw.ios.tests
+        PRODUCT_BUNDLE_IDENTIFIER: ai.openwolf.ios.tests
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/OpenClaw.app/OpenClaw"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/OpenWolf.app/OpenWolf"
         BUNDLE_LOADER: "$(TEST_HOST)"
     info:
       path: Tests/Info.plist
       properties:
-        CFBundleDisplayName: OpenClawTests
+        CFBundleDisplayName: OpenWolfTests
         CFBundleShortVersionString: "2026.2.16"
         CFBundleVersion: "20260216"

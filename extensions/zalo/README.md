@@ -1,17 +1,17 @@
-# @openclaw/zalo
+# @openwolf/zalo
 
-Zalo channel plugin for OpenClaw (Bot API).
+Zalo channel plugin for OpenWolf (Bot API).
 
 ## Install (local checkout)
 
 ```bash
-openclaw plugins install ./extensions/zalo
+openwolf plugins install ./extensions/zalo
 ```
 
 ## Install (npm)
 
 ```bash
-openclaw plugins install @openclaw/zalo
+openwolf plugins install @openwolf/zalo
 ```
 
 Onboarding: select Zalo and confirm the install prompt to fetch the plugin automatically.

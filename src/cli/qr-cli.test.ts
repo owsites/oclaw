@@ -49,10 +49,10 @@ function createRemoteQrConfig(params?: { withTailscale?: boolean }) {
 describe("registerQrCli", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubEnv("OPENCLAW_GATEWAY_TOKEN", "");
-    vi.stubEnv("CLAWDBOT_GATEWAY_TOKEN", "");
-    vi.stubEnv("OPENCLAW_GATEWAY_PASSWORD", "");
-    vi.stubEnv("CLAWDBOT_GATEWAY_PASSWORD", "");
+    vi.stubEnv("OPENWOLF_GATEWAY_TOKEN", "");
+    vi.stubEnv("WOLFBOT_GATEWAY_TOKEN", "");
+    vi.stubEnv("OPENWOLF_GATEWAY_PASSWORD", "");
+    vi.stubEnv("WOLFBOT_GATEWAY_PASSWORD", "");
   });
 
   afterEach(() => {
@@ -100,7 +100,7 @@ describe("registerQrCli", () => {
     expect(output).toContain("Pairing QR");
     expect(output).toContain("ASCII-QR");
     expect(output).toContain("Gateway:");
-    expect(output).toContain("openclaw devices approve <requestId>");
+    expect(output).toContain("openwolf devices approve <requestId>");
   });
 
   it("accepts --token override when config has no auth", async () => {

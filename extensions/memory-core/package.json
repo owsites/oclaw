@@ -1,16 +1,16 @@
 {
-  "name": "@openclaw/memory-core",
+  "name": "@openwolf/memory-core",
   "version": "2026.2.16",
   "private": true,
-  "description": "OpenClaw core memory search plugin",
+  "description": "OpenWolf core memory search plugin",
   "type": "module",
   "devDependencies": {
-    "openclaw": "workspace:*"
+    "openwolf": "workspace:*"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.1.26"
+    "openwolf": ">=2026.1.26"
   },
-  "openclaw": {
+  "openwolf": {
     "extensions": [
       "./index.ts"
     ]

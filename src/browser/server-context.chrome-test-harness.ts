@@ -3,10 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, vi } from "vitest";
 
-const chromeUserDataDir = { dir: "/tmp/openclaw" };
+const chromeUserDataDir = { dir: "/tmp/openwolf" };
 
 beforeAll(async () => {
-  chromeUserDataDir.dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-chrome-user-data-"));
+  chromeUserDataDir.dir = await fs.mkdtemp(path.join(os.tmpdir(), "openwolf-chrome-user-data-"));
 });
 
 afterAll(async () => {
@@ -16,9 +16,9 @@ afterAll(async () => {
 vi.mock("./chrome.js", () => ({
   isChromeCdpReady: vi.fn(async () => true),
   isChromeReachable: vi.fn(async () => true),
-  launchOpenClawChrome: vi.fn(async () => {
+  launchOpenWolfChrome: vi.fn(async () => {
     throw new Error("unexpected launch");
   }),
-  resolveOpenClawUserDataDir: vi.fn(() => chromeUserDataDir.dir),
-  stopOpenClawChrome: vi.fn(async () => {}),
+  resolveOpenWolfUserDataDir: vi.fn(() => chromeUserDataDir.dir),
+  stopOpenWolfChrome: vi.fn(async () => {}),
 }));

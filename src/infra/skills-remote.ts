@@ -1,5 +1,5 @@
 import type { SkillEligibilityContext, SkillEntry } from "../agents/skills.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { OpenWolfConfig } from "../config/config.js";
 import type { NodeRegistry } from "../gateway/node-registry.js";
 import { loadWorkspaceSkillEntries } from "../agents/skills.js";
 import { bumpSkillsSnapshotVersion } from "../agents/skills/refresh.js";
@@ -243,7 +243,7 @@ export async function refreshRemoteNodeBins(params: {
   platform?: string;
   deviceFamily?: string;
   commands?: string[];
-  cfg: OpenClawConfig;
+  cfg: OpenWolfConfig;
   timeoutMs?: number;
 }) {
   if (!remoteRegistry) {
@@ -334,7 +334,7 @@ export function getRemoteSkillEligibility(): SkillEligibilityContext["remote"] |
   };
 }
 
-export async function refreshRemoteBinsForConnectedNodes(cfg: OpenClawConfig) {
+export async function refreshRemoteBinsForConnectedNodes(cfg: OpenWolfConfig) {
   if (!remoteRegistry) {
     return;
   }

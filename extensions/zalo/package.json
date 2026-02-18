@@ -1,15 +1,15 @@
 {
-  "name": "@openclaw/zalo",
+  "name": "@openwolf/zalo",
   "version": "2026.2.16",
-  "description": "OpenClaw Zalo channel plugin",
+  "description": "OpenWolf Zalo channel plugin",
   "type": "module",
   "dependencies": {
     "undici": "7.22.0"
   },
   "devDependencies": {
-    "openclaw": "workspace:*"
+    "openwolf": "workspace:*"
   },
-  "openclaw": {
+  "openwolf": {
     "extensions": [
       "./index.ts"
     ],
@@ -27,7 +27,7 @@
       "quickstartAllowFrom": true
     },
     "install": {
-      "npmSpec": "@openclaw/zalo",
+      "npmSpec": "@openwolf/zalo",
       "localPath": "extensions/zalo",
       "defaultChoice": "npm"
     }

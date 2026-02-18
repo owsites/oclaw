@@ -1,8 +1,8 @@
 # ClawDock <!-- omit in toc -->
 
-Stop typing `docker-compose` commands. Just type `clawdock-start`.
+Stop typing `docker-compose` commands. Just type `wolfdock-start`.
 
-Inspired by Simon Willison's [Running OpenClaw in Docker](https://til.simonwillison.net/llms/openclaw-docker).
+Inspired by Simon Willison's [Running OpenWolf in Docker](https://til.simonwillison.net/llms/openwolf-docker).
 
 - [Quickstart](#quickstart)
 - [Available Commands](#available-commands)
@@ -25,49 +25,49 @@ Inspired by Simon Willison's [Running OpenClaw in Docker](https://til.simonwilli
 **Install:**
 
 ```bash
-mkdir -p ~/.clawdock && curl -sL https://raw.githubusercontent.com/openclaw/openclaw/main/scripts/shell-helpers/clawdock-helpers.sh -o ~/.clawdock/clawdock-helpers.sh
+mkdir -p ~/.wolfdock && curl -sL https://raw.githubusercontent.com/openwolf/openwolf/main/scripts/shell-helpers/wolfdock-helpers.sh -o ~/.wolfdock/wolfdock-helpers.sh
 ```
 
 ```bash
-echo 'source ~/.clawdock/clawdock-helpers.sh' >> ~/.zshrc && source ~/.zshrc
+echo 'source ~/.wolfdock/wolfdock-helpers.sh' >> ~/.zshrc && source ~/.zshrc
 ```
 
 **See what you get:**
 
 ```bash
-clawdock-help
+wolfdock-help
 ```
 
-On first command, ClawDock auto-detects your OpenClaw directory:
+On first command, ClawDock auto-detects your OpenWolf directory:
 
-- Checks common paths (`~/openclaw`, `~/workspace/openclaw`, etc.)
+- Checks common paths (`~/openwolf`, `~/workspace/openwolf`, etc.)
 - If found, asks you to confirm
-- Saves to `~/.clawdock/config`
+- Saves to `~/.wolfdock/config`
 
 **First time setup:**
 
 ```bash
-clawdock-start
+wolfdock-start
 ```
 
 ```bash
-clawdock-fix-token
+wolfdock-fix-token
 ```
 
 ```bash
-clawdock-dashboard
+wolfdock-dashboard
 ```
 
 If you see "pairing required":
 
 ```bash
-clawdock-devices
+wolfdock-devices
 ```
 
 And approve the request for the specific device:
 
 ```bash
-clawdock-approve <request-id>
+wolfdock-approve <request-id>
 ```
 
 ## Available Commands
@@ -76,51 +76,51 @@ clawdock-approve <request-id>
 
 | Command            | Description                     |
 | ------------------ | ------------------------------- |
-| `clawdock-start`   | Start the gateway               |
-| `clawdock-stop`    | Stop the gateway                |
-| `clawdock-restart` | Restart the gateway             |
-| `clawdock-status`  | Check container status          |
-| `clawdock-logs`    | View live logs (follows output) |
+| `wolfdock-start`   | Start the gateway               |
+| `wolfdock-stop`    | Stop the gateway                |
+| `wolfdock-restart` | Restart the gateway             |
+| `wolfdock-status`  | Check container status          |
+| `wolfdock-logs`    | View live logs (follows output) |
 
 ### Container Access
 
 | Command                   | Description                                    |
 | ------------------------- | ---------------------------------------------- |
-| `clawdock-shell`          | Interactive shell inside the gateway container |
-| `clawdock-cli <command>`  | Run OpenClaw CLI commands                      |
-| `clawdock-exec <command>` | Execute arbitrary commands in the container    |
+| `wolfdock-shell`          | Interactive shell inside the gateway container |
+| `wolfdock-cli <command>`  | Run OpenWolf CLI commands                      |
+| `wolfdock-exec <command>` | Execute arbitrary commands in the container    |
 
 ### Web UI & Devices
 
 | Command                 | Description                                |
 | ----------------------- | ------------------------------------------ |
-| `clawdock-dashboard`    | Open web UI in browser with authentication |
-| `clawdock-devices`      | List device pairing requests               |
-| `clawdock-approve <id>` | Approve a device pairing request           |
+| `wolfdock-dashboard`    | Open web UI in browser with authentication |
+| `wolfdock-devices`      | List device pairing requests               |
+| `wolfdock-approve <id>` | Approve a device pairing request           |
 
 ### Setup & Configuration
 
 | Command              | Description                                       |
 | -------------------- | ------------------------------------------------- |
-| `clawdock-fix-token` | Configure gateway authentication token (run once) |
+| `wolfdock-fix-token` | Configure gateway authentication token (run once) |
 
 ### Maintenance
 
 | Command            | Description                                      |
 | ------------------ | ------------------------------------------------ |
-| `clawdock-rebuild` | Rebuild the Docker image                         |
-| `clawdock-clean`   | Remove all containers and volumes (destructive!) |
+| `wolfdock-rebuild` | Rebuild the Docker image                         |
+| `wolfdock-clean`   | Remove all containers and volumes (destructive!) |
 
 ### Utilities
 
 | Command              | Description                               |
 | -------------------- | ----------------------------------------- |
-| `clawdock-health`    | Run gateway health check                  |
-| `clawdock-token`     | Display the gateway authentication token  |
-| `clawdock-cd`        | Jump to the OpenClaw project directory    |
-| `clawdock-config`    | Open the OpenClaw config directory        |
-| `clawdock-workspace` | Open the workspace directory              |
-| `clawdock-help`      | Show all available commands with examples |
+| `wolfdock-health`    | Run gateway health check                  |
+| `wolfdock-token`     | Display the gateway authentication token  |
+| `wolfdock-cd`        | Jump to the OpenWolf project directory    |
+| `wolfdock-config`    | Open the OpenWolf config directory        |
+| `wolfdock-workspace` | Open the workspace directory              |
+| `wolfdock-help`      | Show all available commands with examples |
 
 ## Common Workflows
 
@@ -129,19 +129,19 @@ clawdock-approve <request-id>
 **Restart the gateway:**
 
 ```bash
-clawdock-restart
+wolfdock-restart
 ```
 
 **Check container status:**
 
 ```bash
-clawdock-status
+wolfdock-status
 ```
 
 **View live logs:**
 
 ```bash
-clawdock-logs
+wolfdock-logs
 ```
 
 ### Set Up WhatsApp Bot
@@ -149,13 +149,13 @@ clawdock-logs
 **Shell into the container:**
 
 ```bash
-clawdock-shell
+wolfdock-shell
 ```
 
 **Inside the container, login to WhatsApp:**
 
 ```bash
-openclaw channels login --channel whatsapp --verbose
+openwolf channels login --channel whatsapp --verbose
 ```
 
 Scan the QR code with WhatsApp on your phone.
@@ -163,7 +163,7 @@ Scan the QR code with WhatsApp on your phone.
 **Verify connection:**
 
 ```bash
-openclaw status
+openwolf status
 ```
 
 ### Troubleshooting Device Pairing
@@ -171,13 +171,13 @@ openclaw status
 **Check for pending pairing requests:**
 
 ```bash
-clawdock-devices
+wolfdock-devices
 ```
 
 **Copy the Request ID from the "Pending" table, then approve:**
 
 ```bash
-clawdock-approve <request-id>
+wolfdock-approve <request-id>
 ```
 
 Then refresh your browser.
@@ -187,13 +187,13 @@ Then refresh your browser.
 If you see "gateway token mismatch" errors:
 
 ```bash
-clawdock-fix-token
+wolfdock-fix-token
 ```
 
 This will:
 
 1. Read the token from your `.env` file
-2. Configure it in the OpenClaw config
+2. Configure it in the OpenWolf config
 3. Restart the gateway
 4. Verify the configuration
 
@@ -209,18 +209,18 @@ docker ps
 
 - Docker and Docker Compose installed
 - Bash or Zsh shell
-- OpenClaw project (from `docker-setup.sh`)
+- OpenWolf project (from `docker-setup.sh`)
 
 ## Development
 
 **Test with fresh config (mimics first-time install):**
 
 ```bash
-unset CLAWDOCK_DIR && rm -f ~/.clawdock/config && source scripts/shell-helpers/clawdock-helpers.sh
+unset WOLFDOCK_DIR && rm -f ~/.wolfdock/config && source scripts/shell-helpers/wolfdock-helpers.sh
 ```
 
 Then run any command to trigger auto-detect:
 
 ```bash
-clawdock-start
+wolfdock-start
 ```

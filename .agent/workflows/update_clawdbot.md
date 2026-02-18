@@ -113,7 +113,7 @@ pnpm build
 pnpm ui:build
 
 # Run diagnostics
-pnpm clawdbot doctor
+pnpm wolfbot doctor
 ```
 
 ---
@@ -152,13 +152,13 @@ After rebuilding the macOS app, always verify it works correctly:
 
 ```bash
 # Check gateway health
-pnpm clawdbot health
+pnpm wolfbot health
 
 # Verify no zombie processes
-ps aux | grep -E "(clawdbot|gateway)" | grep -v grep
+ps aux | grep -E "(wolfbot|gateway)" | grep -v grep
 
 # Test agent functionality by sending a verification message
-pnpm clawdbot agent --message "Verification: macOS app rebuild successful - agent is responding." --session-id YOUR_TELEGRAM_SESSION_ID
+pnpm wolfbot agent --message "Verification: macOS app rebuild successful - agent is responding." --session-id YOUR_TELEGRAM_SESSION_ID
 
 # Confirm the message was received on Telegram
 # (Check your Telegram chat with the bot)
@@ -235,7 +235,7 @@ If upstream introduced new model configurations:
 # Check for OpenRouter API key requirements
 grep -r "openrouter\|OPENROUTER" src/ --include="*.ts" --include="*.js"
 
-# Update clawdbot.json with fallback chains
+# Update wolfbot.json with fallback chains
 # Add model fallback configurations as needed
 ```
 
@@ -245,7 +245,7 @@ grep -r "openrouter\|OPENROUTER" src/ --include="*.ts" --include="*.js"
 
 ```bash
 # Verify everything works
-pnpm clawdbot health
+pnpm wolfbot health
 pnpm test
 
 # Push (force required after rebase)
@@ -356,13 +356,13 @@ pnpm build
 pnpm ui:build
 
 echo "==> Running doctor..."
-pnpm clawdbot doctor
+pnpm wolfbot doctor
 
 echo "==> Rebuilding macOS app..."
 ./scripts/restart-mac.sh
 
 echo "==> Verifying gateway health..."
-pnpm clawdbot health
+pnpm wolfbot health
 
 echo "==> Checking for Swift 6.2 compatibility issues..."
 if grep -r "FileManager\.default\|Thread\.isMainThread" src/ apps/ --include="*.swift" --quiet; then
@@ -374,7 +374,7 @@ fi
 
 echo "==> Testing agent functionality..."
 # Note: Update YOUR_TELEGRAM_SESSION_ID with actual session ID
-pnpm clawdbot agent --message "Verification: Upstream sync and macOS rebuild completed successfully." --session-id YOUR_TELEGRAM_SESSION_ID || echo "Warning: Agent test failed - check Telegram for verification message"
+pnpm wolfbot agent --message "Verification: Upstream sync and macOS rebuild completed successfully." --session-id YOUR_TELEGRAM_SESSION_ID || echo "Warning: Agent test failed - check Telegram for verification message"
 
 echo "==> Done! Check Telegram for verification message, then run 'git push --force-with-lease' when ready."
 ```

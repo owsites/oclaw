@@ -1,9 +1,9 @@
 ---
 read_when:
-  - 你使用 `openclaw browser` 并想要常见任务的示例
+  - 你使用 `openwolf browser` 并想要常见任务的示例
   - 你想通过 node host 控制在另一台机器上运行的浏览器
   - 你想使用 Chrome 扩展中继（通过工具栏按钮附加/分离）
-summary: "`openclaw browser` 的 CLI 参考（配置文件、标签页、操作、扩展中继）"
+summary: "`openwolf browser` 的 CLI 参考（配置文件、标签页、操作、扩展中继）"
 title: browser
 x-i18n:
   generated_at: "2026-02-03T07:44:49Z"
@@ -14,9 +14,9 @@ x-i18n:
   workflow: 15
 ---
 
-# `openclaw browser`
+# `openwolf browser`
 
-管理 OpenClaw 的浏览器控制服务器并运行浏览器操作（标签页、快照、截图、导航、点击、输入）。
+管理 OpenWolf 的浏览器控制服务器并运行浏览器操作（标签页、快照、截图、导航、点击、输入）。
 
 相关：
 
@@ -34,38 +34,38 @@ x-i18n:
 ## 快速开始（本地）
 
 ```bash
-openclaw browser --browser-profile chrome tabs
-openclaw browser --browser-profile openclaw start
-openclaw browser --browser-profile openclaw open https://example.com
-openclaw browser --browser-profile openclaw snapshot
+openwolf browser --browser-profile chrome tabs
+openwolf browser --browser-profile openwolf start
+openwolf browser --browser-profile openwolf open https://example.com
+openwolf browser --browser-profile openwolf snapshot
 ```
 
 ## 配置文件
 
 配置文件是命名的浏览器路由配置。实际上：
 
-- `openclaw`：启动/附加到专用的 OpenClaw 管理的 Chrome 实例（隔离的用户数据目录）。
+- `openwolf`：启动/附加到专用的 OpenWolf 管理的 Chrome 实例（隔离的用户数据目录）。
 - `chrome`：通过 Chrome 扩展中继控制你现有的 Chrome 标签页。
 
 ```bash
-openclaw browser profiles
-openclaw browser create-profile --name work --color "#FF5A36"
-openclaw browser delete-profile --name work
+openwolf browser profiles
+openwolf browser create-profile --name work --color "#FF5A36"
+openwolf browser delete-profile --name work
 ```
 
 使用特定配置文件：
 
 ```bash
-openclaw browser --browser-profile work tabs
+openwolf browser --browser-profile work tabs
 ```
 
 ## 标签页
 
 ```bash
-openclaw browser tabs
-openclaw browser open https://docs.openclaw.ai
-openclaw browser focus <targetId>
-openclaw browser close <targetId>
+openwolf browser tabs
+openwolf browser open https://docs.openwolf.ai
+openwolf browser focus <targetId>
+openwolf browser close <targetId>
 ```
 
 ## 快照 / 截图 / 操作
@@ -73,21 +73,21 @@ openclaw browser close <targetId>
 快照：
 
 ```bash
-openclaw browser snapshot
+openwolf browser snapshot
 ```
 
 截图：
 
 ```bash
-openclaw browser screenshot
+openwolf browser screenshot
 ```
 
 导航/点击/输入（基于 ref 的 UI 自动化）：
 
 ```bash
-openclaw browser navigate https://example.com
-openclaw browser click <ref>
-openclaw browser type <ref> "hello"
+openwolf browser navigate https://example.com
+openwolf browser click <ref>
+openwolf browser type <ref> "hello"
 ```
 
 ## Chrome 扩展中继（通过工具栏按钮附加）
@@ -97,8 +97,8 @@ openclaw browser type <ref> "hello"
 将未打包的扩展安装到稳定路径：
 
 ```bash
-openclaw browser extension install
-openclaw browser extension path
+openwolf browser extension install
+openwolf browser extension path
 ```
 
 然后 Chrome → `chrome://extensions` → 启用"开发者模式" → "加载已解压的扩展程序" → 选择打印的文件夹。

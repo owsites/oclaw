@@ -1,0 +1,26 @@
+# OpenWolf gateway — Podman Quadlet (rootless)
+# Installed by setup-podman.sh into openwolf's ~/.config/containers/systemd/
+# {{OPENWOLF_HOME}} is replaced at install time.
+
+[Unit]
+Description=OpenWolf gateway (rootless Podman)
+
+[Container]
+Image=openwolf:local
+ContainerName=openwolf
+UserNS=keep-id
+Volume={{OPENWOLF_HOME}}/.openwolf:/home/node/.openwolf
+EnvironmentFile={{OPENWOLF_HOME}}/.openwolf/.env
+Environment=HOME=/home/node
+Environment=TERM=xterm-256color
+PublishPort=18789:18789
+PublishPort=18790:18790
+Pull=never
+Exec=node dist/index.js gateway --bind lan --port 18789
+
+[Service]
+TimeoutStartSec=300
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

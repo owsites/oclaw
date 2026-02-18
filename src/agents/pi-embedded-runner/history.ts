@@ -1,5 +1,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { OpenWolfConfig } from "../../config/config.js";
+import type { ContextConfig } from "../context/types.js";
+import { buildWeightedHistory } from "../context/weighted-history.js";
 
 const THREAD_SUFFIX_REGEX = /^(.*)(?::(?:thread|topic):\d+)$/i;
 
@@ -36,13 +38,26 @@ export function limitHistoryTurns(
 }
 
 /**
+ * Apply weighted history windowing from the context management pipeline.
+ * This is a higher-level alternative to `limitHistoryTurns` that uses
+ * the three-tier (RECENT/MIDDLE/OLD) approach.
+ */
+export function applyWeightedHistory(
+  messages: AgentMessage[],
+  contextConfig: ContextConfig,
+): AgentMessage[] {
+  const result = buildWeightedHistory(messages, contextConfig);
+  return result.messages;
+}
+
+/**
  * Extract provider + user ID from a session key and look up dmHistoryLimit.
  * Supports per-DM overrides and provider defaults.
  * For channel/group sessions, uses historyLimit from provider config.
  */
 export function getHistoryLimitFromSessionKey(
   sessionKey: string | undefined,
-  config: OpenClawConfig | undefined,
+  config: OpenWolfConfig | undefined,
 ): number | undefined {
   if (!sessionKey || !config) {
     return undefined;
@@ -61,7 +76,7 @@ export function getHistoryLimitFromSessionKey(
   const userId = stripThreadSuffix(userIdRaw);
 
   const resolveProviderConfig = (
-    cfg: OpenClawConfig | undefined,
+    cfg: OpenWolfConfig | undefined,
     providerId: string,
   ):
     | {
