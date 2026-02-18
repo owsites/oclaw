@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import { describe, expect, it } from "vitest";
 import { cleanStaleToolResults } from "./stale-tool-cleaner.js";
 import { DEFAULT_CONTEXT_CONFIG } from "./types.js";
 
@@ -20,9 +20,7 @@ function buildConversation(turns: number): AgentMessage[] {
   for (let i = 0; i < turns; i++) {
     messages.push(makeUserMsg(`User message ${i}`));
     messages.push(makeAssistantMsg(`Assistant response ${i}`));
-    messages.push(
-      makeToolResult("A".repeat(500) + ` tool result for turn ${i}`, "exec"),
-    );
+    messages.push(makeToolResult("A".repeat(500) + ` tool result for turn ${i}`, "exec"));
   }
   return messages;
 }
@@ -30,7 +28,10 @@ function buildConversation(turns: number): AgentMessage[] {
 describe("cleanStaleToolResults", () => {
   it("returns messages unchanged when disabled", () => {
     const messages = buildConversation(10);
-    const config = { ...DEFAULT_CONTEXT_CONFIG, staleToolCleaner: { ...DEFAULT_CONTEXT_CONFIG.staleToolCleaner, enabled: false } };
+    const config = {
+      ...DEFAULT_CONTEXT_CONFIG,
+      staleToolCleaner: { ...DEFAULT_CONTEXT_CONFIG.staleToolCleaner, enabled: false },
+    };
     const result = cleanStaleToolResults(messages, config);
     expect(result.messages).toEqual(messages);
     expect(result.tokensSaved).toBe(0);
@@ -58,7 +59,12 @@ describe("cleanStaleToolResults", () => {
     const result = cleanStaleToolResults(messages, DEFAULT_CONTEXT_CONFIG);
     const firstToolResult = result.messages.find((m) => m.role === "toolResult");
     const content = (firstToolResult as { content?: unknown }).content;
-    expect(typeof content === "string" && content.startsWith("[exec]")).toBe(true);
+    const text = Array.isArray(content)
+      ? (content[0] as { text?: string })?.text
+      : typeof content === "string"
+        ? content
+        : "";
+    expect(text?.startsWith("[exec]")).toBe(true);
   });
 
   it("handles empty messages array", () => {

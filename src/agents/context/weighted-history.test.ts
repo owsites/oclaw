@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { buildWeightedHistory } from "./weighted-history.js";
+import { describe, expect, it } from "vitest";
 import { DEFAULT_CONTEXT_CONFIG } from "./types.js";
+import { buildWeightedHistory } from "./weighted-history.js";
 
 function makeUserMsg(content: string): AgentMessage {
   return { role: "user", content } as AgentMessage;
@@ -28,7 +28,10 @@ function buildConversation(turns: number, toolResultSize = 500): AgentMessage[] 
 describe("buildWeightedHistory", () => {
   it("returns messages unchanged when disabled", () => {
     const messages = buildConversation(20);
-    const config = { ...DEFAULT_CONTEXT_CONFIG, history: { ...DEFAULT_CONTEXT_CONFIG.history, enabled: false } };
+    const config = {
+      ...DEFAULT_CONTEXT_CONFIG,
+      history: { ...DEFAULT_CONTEXT_CONFIG.history, enabled: false },
+    };
     const result = buildWeightedHistory(messages, config);
     expect(result.messages).toEqual(messages);
     expect(result.tokensSaved).toBe(0);
@@ -56,6 +59,12 @@ describe("buildWeightedHistory", () => {
     const toolResults = result.messages.filter((m) => m.role === "toolResult");
     const hasATruncated = toolResults.some((m) => {
       const content = (m as { content?: unknown }).content;
+      if (Array.isArray(content)) {
+        return content.some((b) => {
+          const t = (b as { text?: string })?.text;
+          return typeof t === "string" && t.includes("[...truncated]");
+        });
+      }
       return typeof content === "string" && content.includes("[...truncated]");
     });
     expect(hasATruncated).toBe(true);
