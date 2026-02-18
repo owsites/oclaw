@@ -53,7 +53,10 @@ function extractFromText(text: string, patterns: RegExp[]): string[] {
   for (const pattern of patterns) {
     const match = text.match(pattern);
     if (match?.[1]) {
-      const cleaned = match[1].trim().replace(/[.!?,;:]$/, "").trim();
+      const cleaned = match[1]
+        .trim()
+        .replace(/[.!?,;:]$/, "")
+        .trim();
       if (cleaned.length >= 10) {
         results.push(cleaned);
       }
@@ -64,13 +67,21 @@ function extractFromText(text: string, patterns: RegExp[]): string[] {
 
 function getMessageText(msg: AgentMessage): string {
   const content = (msg as { content?: unknown }).content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
   const parts: string[] = [];
   for (const block of content) {
-    if (!block || typeof block !== "object") continue;
+    if (!block || typeof block !== "object") {
+      continue;
+    }
     const text = (block as { text?: unknown }).text;
-    if (typeof text === "string") parts.push(text);
+    if (typeof text === "string") {
+      parts.push(text);
+    }
   }
   return parts.join("\n");
 }
@@ -98,13 +109,17 @@ export function extractAndUpdateMemory(
   memory: WorkingMemoryBlock,
   config: ContextConfig,
 ): void {
-  if (!config.workingMemory.enabled) return;
+  if (!config.workingMemory.enabled) {
+    return;
+  }
 
   const { maxFacts, maxDecisions, maxConstraints } = config.workingMemory;
 
   for (const msg of messages) {
     const text = getMessageText(msg);
-    if (!text) continue;
+    if (!text) {
+      continue;
+    }
 
     // Track tool usage
     const toolName = getToolName(msg);
@@ -146,6 +161,4 @@ export function extractAndUpdateMemory(
       }
     }
   }
-
-  memory.turnCount++;
 }

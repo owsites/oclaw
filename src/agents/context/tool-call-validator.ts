@@ -80,7 +80,7 @@ export function validateToolCallResult(
             .join("\n")
         : "";
 
-  const isError = (toolResultMsg as { is_error?: unknown }).is_error === true;
+  const isError = (toolResultMsg as { isError?: unknown }).isError === true;
 
   // Check for unknown tool
   for (const pattern of UNKNOWN_TOOL_PATTERNS) {
@@ -106,8 +106,7 @@ export function validateToolCallResult(
 
   // Check for execution errors
   if (isError || EXECUTION_ERROR_PATTERNS.some((p) => p.test(text))) {
-    const toolName =
-      ((toolResultMsg as { toolName?: unknown }).toolName as string) ?? undefined;
+    const toolName = ((toolResultMsg as { toolName?: unknown }).toolName as string) ?? undefined;
     return {
       isValid: false,
       errorType: "execution_error",

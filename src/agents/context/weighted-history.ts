@@ -48,23 +48,33 @@ function identifyTurns(messages: AgentMessage[]): TurnBoundary[] {
  * Truncate tool result content to a maximum character count.
  */
 function truncateToolResult(msg: AgentMessage, maxChars: number): AgentMessage {
-  if (msg.role !== "toolResult") return msg;
+  if (msg.role !== "toolResult") {
+    return msg;
+  }
 
   const content = (msg as { content?: unknown }).content;
   if (typeof content === "string") {
-    if (content.length <= maxChars) return msg;
+    if (content.length <= maxChars) {
+      return msg;
+    }
     return {
       ...msg,
-      content: content.slice(0, maxChars) + "\n[...truncated]",
+      content: [{ type: "text" as const, text: content.slice(0, maxChars) + "\n[...truncated]" }],
     } as AgentMessage;
   }
 
-  if (!Array.isArray(content)) return msg;
+  if (!Array.isArray(content)) {
+    return msg;
+  }
 
   const newContent = content.map((block) => {
-    if (!block || typeof block !== "object") return block;
+    if (!block || typeof block !== "object") {
+      return block;
+    }
     const text = (block as { text?: unknown }).text;
-    if (typeof text !== "string" || text.length <= maxChars) return block;
+    if (typeof text !== "string" || text.length <= maxChars) {
+      return block;
+    }
     return { ...block, text: text.slice(0, maxChars) + "\n[...truncated]" };
   });
 

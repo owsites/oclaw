@@ -1,4 +1,4 @@
-import type { ClawdbotConfig, RuntimeEnv } from "openwolf/plugin-sdk";
+import type { OpenWolfConfig, RuntimeEnv } from "openwolf/plugin-sdk";
 import {
   buildAgentMediaPayload,
   buildPendingHistoryContextFromMap,
@@ -306,7 +306,7 @@ function inferPlaceholder(messageType: string): string {
  * Similar to Discord's resolveMediaList().
  */
 async function resolveFeishuMediaList(params: {
-  cfg: ClawdbotConfig;
+  cfg: OpenWolfConfig;
   messageId: string;
   messageType: string;
   content: string;
@@ -470,7 +470,7 @@ export function parseFeishuMessageEvent(
 }
 
 export async function handleFeishuMessage(params: {
-  cfg: ClawdbotConfig;
+  cfg: OpenWolfConfig;
   event: FeishuMessageEvent;
   botOpenId?: string;
   runtime?: RuntimeEnv;

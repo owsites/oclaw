@@ -2,7 +2,7 @@ import {
   createReplyPrefixContext,
   createTypingCallbacks,
   logTypingFailure,
-  type ClawdbotConfig,
+  type OpenWolfConfig,
   type ReplyPayload,
   type RuntimeEnv,
 } from "openwolf/plugin-sdk";
@@ -22,7 +22,7 @@ function shouldUseCard(text: string): boolean {
 }
 
 export type CreateFeishuReplyDispatcherParams = {
-  cfg: ClawdbotConfig;
+  cfg: OpenWolfConfig;
   agentId: string;
   runtime: RuntimeEnv;
   chatId: string;

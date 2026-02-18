@@ -18,13 +18,21 @@ import { estimateMessageTokens } from "./telemetry.js";
 
 function getMessageText(msg: AgentMessage): string {
   const content = (msg as { content?: unknown }).content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
   const parts: string[] = [];
   for (const block of content) {
-    if (!block || typeof block !== "object") continue;
+    if (!block || typeof block !== "object") {
+      continue;
+    }
     const text = (block as { text?: unknown }).text;
-    if (typeof text === "string") parts.push(text);
+    if (typeof text === "string") {
+      parts.push(text);
+    }
   }
   return parts.join("\n");
 }
@@ -41,7 +49,9 @@ function getToolName(msg: AgentMessage): string | undefined {
 
 function summarizeToolResult(text: string, maxChars: number): string {
   const firstLine = text.split("\n").find((line) => line.trim().length > 0) ?? "";
-  if (firstLine.length <= maxChars) return firstLine;
+  if (firstLine.length <= maxChars) {
+    return firstLine;
+  }
   return firstLine.slice(0, maxChars - 3) + "...";
 }
 
@@ -56,7 +66,9 @@ function assignTurns(messages: AgentMessage[]): Map<AgentMessage, number> {
   const turnMap = new Map<AgentMessage, number>();
   let currentTurn = 0;
   for (const msg of messages) {
-    if (msg.role === "user") currentTurn++;
+    if (msg.role === "user") {
+      currentTurn++;
+    }
     turnMap.set(msg, currentTurn);
   }
   return turnMap;
@@ -81,12 +93,16 @@ export function cleanStaleToolResults(
 
   const cleaned = messages.map((msg) => {
     // Only clean tool results
-    if (msg.role !== "toolResult") return msg;
+    if (msg.role !== "toolResult") {
+      return msg;
+    }
 
     const msgTurn = turnMap.get(msg) ?? 0;
     const age = latestTurn - msgTurn;
 
-    if (age < staleTurnThreshold) return msg;
+    if (age < staleTurnThreshold) {
+      return msg;
+    }
 
     const toolName = getToolName(msg) ?? "unknown_tool";
     const originalText = getMessageText(msg);
@@ -96,13 +112,15 @@ export function cleanStaleToolResults(
 
     // Only replace if it actually saves tokens
     const newTokens = Math.ceil(replacement.length / 4);
-    if (newTokens >= originalTokens) return msg;
+    if (newTokens >= originalTokens) {
+      return msg;
+    }
 
     tokensSaved += originalTokens - newTokens;
 
     return {
       ...msg,
-      content: replacement,
+      content: [{ type: "text" as const, text: replacement }],
     } as AgentMessage;
   });
 
